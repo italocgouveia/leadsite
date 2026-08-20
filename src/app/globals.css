@@ -1,26 +1,583 @@
 @import "tailwindcss";
 
+/**
+ * Identidade ICG Tech.
+ *
+ * Valores extraídos do icgtech-three.vercel.app, não inventados:
+ *  - fundo #050505, texto branco com opacidade para hierarquia
+ *  - azul de marca #2F8FFF
+ *  - superfícies em branco a 3% e 9%
+ *  - Space Grotesk nos títulos, Inter no corpo
+ *  - botão pílula com glow azul
+ *
+ * Regras de cor, estreitas de propósito:
+ *  - azul  = ação principal
+ *  - verde = SÓ WhatsApp
+ *  - vermelho = SÓ alerta
+ *  - o resto é branco em opacidades diferentes
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --fundo: #050505;
+  --fundo-2: #0b0b0d;
+  --superficie: rgba(255, 255, 255, 0.03);
+  --superficie-2: rgba(255, 255, 255, 0.06);
+  --linha: rgba(255, 255, 255, 0.09);
+  --linha-forte: rgba(255, 255, 255, 0.16);
+
+  --texto: #ffffff;
+  --texto-2: rgba(255, 255, 255, 0.7);
+  --texto-3: rgba(255, 255, 255, 0.42);
+
+  --azul: #2f8fff;
+  --azul-escuro: #1a7bef;
+  --azul-fraco: rgba(47, 143, 255, 0.12);
+  --brilho-azul: 0 0 22px -3px rgba(47, 143, 255, 0.5);
+
+  --verde: #22c55e;
+  --verde-fraco: rgba(34, 197, 94, 0.12);
+
+  --vermelho: #ff5f57;
+  --vermelho-fraco: rgba(255, 95, 87, 0.12);
+
+  --ambar: #febc2e;
+  --ambar-fraco: rgba(254, 188, 46, 0.12);
+
+  --raio: 10px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-texto: var(--texto);
+  --color-texto-2: var(--texto-2);
+  --color-texto-3: var(--texto-3);
+  --color-fundo: var(--fundo);
+  --color-fundo-2: var(--fundo-2);
+  --color-linha: var(--linha);
+  --color-azul: var(--azul);
+  --color-verde: var(--verde);
+  --color-vermelho: var(--vermelho);
+  --color-ambar: var(--ambar);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: var(--fonte-corpo), -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--fonte-titulo), var(--fonte-corpo), sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+/* Seleção de texto na cor da marca. */
+::selection {
+  background: rgba(47, 143, 255, 0.3);
+}
+
+/* ---------------------------------------------------------------- botões */
+
+.btn-primario {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 100px;
+  background: var(--azul);
+  color: #fff;
+  padding: 0.55rem 1.15rem;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: var(--brilho-azul);
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+.btn-primario:hover:not(:disabled) {
+  background: var(--azul-escuro);
+  box-shadow: 0 0 26px -2px rgba(47, 143, 255, 0.65);
+}
+.btn-primario:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: default;
+}
+
+.btn-secundario {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 100px;
+  border: 1px solid var(--linha);
+  background: var(--superficie);
+  color: var(--texto);
+  padding: 0.55rem 1.15rem;
+  font-size: 14px;
+  font-weight: 500;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+.btn-secundario:hover:not(:disabled) {
+  background: var(--superficie-2);
+  border-color: var(--linha-forte);
+}
+.btn-secundario:disabled {
+  opacity: 0.45;
+}
+
+/**
+ * Vermelho de ação destrutiva. Fica CONTORNADO, não preenchido: botão vermelho
+ * cheio chama tanto quanto o primário e acaba clicado sem querer. Só no hover
+ * ele enche — nesse ponto a intenção já é clara.
+ */
+.btn-perigo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 100px;
+  border: 1px solid rgba(255, 95, 87, 0.45);
+  background: var(--vermelho-fraco);
+  color: var(--vermelho);
+  padding: 0.55rem 1.15rem;
+  font-size: 14px;
+  font-weight: 500;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+.btn-perigo:hover:not(:disabled) {
+  background: var(--vermelho);
+  border-color: var(--vermelho);
+  color: #1a0605;
+}
+.btn-perigo:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/**
+ * Descartar lead da fila. Quase invisível em repouso — é a ação de "esse não
+ * serve", e uma coluna inteira de X vermelhos competiria com o botão que faz
+ * dinheiro. Só ganha cor quando o mouse chega.
+ */
+.btn-descartar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  width: 34px;
+  flex-shrink: 0;
+  border-radius: 100px;
+  border: 1px solid transparent;
+  color: var(--texto-3);
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.btn-descartar:hover {
+  color: var(--vermelho);
+  border-color: rgba(255, 95, 87, 0.4);
+  background: var(--vermelho-fraco);
+}
+.btn-descartar:focus-visible {
+  outline: none;
+  color: var(--vermelho);
+  border-color: var(--vermelho);
+  box-shadow: 0 0 0 3px var(--vermelho-fraco);
+}
+
+/* Lixeira do cartão: discreta até o mouse chegar perto. */
+.btn-excluir {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  border-radius: 100px;
+  border: 1px solid var(--linha);
+  background: var(--superficie);
+  color: var(--texto-3);
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.btn-excluir:hover {
+  color: var(--vermelho);
+  border-color: rgba(255, 95, 87, 0.45);
+  background: var(--vermelho-fraco);
+}
+.btn-excluir:focus-visible {
+  outline: none;
+  border-color: var(--vermelho);
+  box-shadow: 0 0 0 3px var(--vermelho-fraco);
+}
+
+/* Verde existe só aqui. */
+.btn-whatsapp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 100px;
+  background: var(--verde);
+  color: #04140a;
+  padding: 0.55rem 1.15rem;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 140ms ease;
+}
+.btn-whatsapp:hover {
+  background: #16a34a;
+}
+
+.btn-g {
+  padding: 0.8rem 1.6rem;
+  font-size: 15px;
+}
+
+/* ---------------------------------------------------------------- campos */
+
+.campo,
+.campo-apple {
+  width: 100%;
+  border-radius: var(--raio);
+  border: 1px solid var(--linha);
+  background: var(--superficie);
+  padding: 0.55rem 0.8rem;
+  font-size: 14px;
+  color: var(--texto);
+  outline: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+.campo::placeholder,
+.campo-apple::placeholder {
+  color: var(--texto-3);
+}
+.campo:focus,
+.campo-apple:focus {
+  border-color: var(--azul);
+  box-shadow: 0 0 0 3px var(--azul-fraco);
+}
+
+/**
+ * O menu nativo do select abre com as cores do sistema, e a opção herda o
+ * fundo do select. Como os selects daqui têm fundo translúcido, a lista abria
+ * texto claro sobre fundo claro — ilegível.
+ *
+ * A regra vale para TODO select, não só para `.campo`: a versão anterior
+ * pedia a classe, e o select de etapa em "Meus leads" (que usa classes do
+ * Tailwind, não `.campo`) ficava de fora e abria invisível.
+ */
+select option,
+select optgroup {
+  background: #101014;
+  color: #fff;
+}
+
+/**
+ * Select de etapa da tabela: compacto, fundo SÓLIDO (não translúcido — sobre o
+ * fundo animado a leitura variava) e seta própria, já que a nativa some no
+ * escuro. `appearance: none` exige desenhar a seta à mão.
+ */
+.select-etapa {
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 7px;
+  border: 1px solid var(--linha);
+  background-color: #131317;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-opacity='0.55' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  padding: 0.3rem 1.7rem 0.3rem 0.6rem;
+  font-size: 13px;
+  color: var(--texto);
+  outline: none;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+.select-etapa:hover {
+  border-color: var(--linha-forte);
+  background-color: #191920;
+}
+.select-etapa:focus-visible {
+  border-color: var(--azul);
+  box-shadow: 0 0 0 3px var(--azul-fraco);
+}
+
+/* ------------------------------------------------------------ botão proposta */
+
+/**
+ * Ação repetida em toda linha da tabela. Como pílula azul cheia viraria uma
+ * coluna de manchas; como link solto (o que era antes) não parecia clicável.
+ * Meio-termo: contorno discreto, que acende no hover da própria linha.
+ */
+.btn-proposta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  border-radius: 100px;
+  border: 1px solid var(--linha);
+  background: var(--superficie);
+  color: var(--texto-2);
+  padding: 0.28rem 0.7rem;
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+tr:hover > td > .btn-proposta {
+  color: var(--azul);
+  border-color: rgba(47, 143, 255, 0.4);
+}
+.btn-proposta:hover {
+  color: #fff;
+  background: var(--azul);
+  border-color: var(--azul);
+  box-shadow: var(--brilho-azul);
+}
+.btn-proposta:focus-visible {
+  outline: none;
+  border-color: var(--azul);
+  box-shadow: 0 0 0 3px var(--azul-fraco);
+}
+
+/* Já mandou proposta: some do primeiro plano, mas continua clicável. */
+.btn-proposta-feito {
+  color: var(--texto-3);
+  border-color: transparent;
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------- cartões */
+
+/**
+ * A borda não é uma linha chapada: é um degradê de 1px, claro no topo e
+ * puxando para o azul da marca embaixo. Isso separa o cartão do fundo animado,
+ * que muda de brilho o tempo todo — uma linha de opacidade fixa some quando o
+ * shader passa claro atrás dela.
+ *
+ * Técnica: pseudo-elemento com padding de 1px e máscara XOR, que recorta o
+ * miolo e deixa só a moldura. É o jeito de ter degradê em borda arredondada
+ * sem trocar o fundo do cartão.
+ */
+.cartao,
+.cartao-apple {
+  position: relative;
+  background: var(--superficie);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background-clip: padding-box;
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+.cartao::before,
+.cartao-apple::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.07) 42%,
+    rgba(47, 143, 255, 0.28) 100%
+  );
+  /**
+   * Ordem importa: os atalhos `-webkit-mask` / `mask` RESETAM o composite,
+   * então as duas linhas de composite têm que vir depois das duas de máscara.
+   * Com a ordem invertida o computed volta a `add`, a máscara não recorta nada
+   * e o degradê cobre o cartão inteiro em vez de virar moldura.
+   */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  transition: background 160ms ease;
+}
+
+.cartao-interativo {
+  transition:
+    background 140ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+.cartao-interativo:hover {
+  background: var(--superficie-2);
+}
+.cartao-interativo:hover::before {
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(47, 143, 255, 0.35) 45%,
+    rgba(47, 143, 255, 0.7) 100%
+  );
+}
+
+/* Realce reservado a cartão arrastável: sobe 1px e ganha o glow azul. */
+.cartao-brilho:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--brilho-azul);
+}
+
+/**
+ * Cartão do funil. Fundo um pouco mais sólido que o padrão porque ele fica
+ * dentro da coluna, que já é translúcida — dois vidros empilhados sobre o
+ * shader deixam o texto lavado.
+ */
+.cartao-borda {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ------------------------------------------------------------ funil/colunas */
+
+.coluna-funil {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--linha);
+  backdrop-filter: blur(10px);
+}
+.coluna-funil-alvo {
+  background: var(--azul-fraco);
+  border-color: var(--azul);
+  box-shadow: inset 0 0 0 1px var(--azul);
+}
+
+/* ---------------------------------------------------------------- etiquetas */
+
+.etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.etiqueta-alta {
+  background: var(--vermelho-fraco);
+  color: var(--vermelho);
+}
+.etiqueta-boa {
+  background: var(--ambar-fraco);
+  color: var(--ambar);
+}
+.etiqueta-media,
+.etiqueta-neutra {
+  background: var(--superficie-2);
+  color: var(--texto-2);
+}
+
+/**
+ * Produto oferecido. Contornada, não preenchida: fica ao lado da etiqueta de
+ * oportunidade e duas manchas de cor cheia lado a lado brigam pela atenção.
+ * A cor separa os três — azul é site (a cor do produto original), verde é
+ * chatbot (o canal é o WhatsApp), e o pacote leva as duas na borda.
+ */
+.etiqueta-produto-site,
+.etiqueta-produto-chatbot,
+.etiqueta-produto-site-e-chatbot {
+  background: transparent;
+  border: 1px solid currentColor;
+  font-weight: 500;
+}
+.etiqueta-produto-site {
+  color: var(--azul);
+}
+.etiqueta-produto-chatbot {
+  color: var(--verde);
+}
+.etiqueta-produto-site-e-chatbot {
+  color: var(--azul);
+  border-color: transparent;
+  background:
+    linear-gradient(var(--fundo), var(--fundo)) padding-box,
+    linear-gradient(100deg, var(--azul), var(--verde)) border-box;
+  border: 1px solid transparent;
+}
+.etiqueta-verde {
+  background: var(--verde-fraco);
+  color: var(--verde);
+}
+
+/* ---------------------------------------------------------------- menu
+   A gaveta do celular NÃO tem animação de entrada: com `fill: both`, o
+   navegador congela a animação em aba de segundo plano e ela abria fora da
+   tela. Aparecer instantaneamente é mais previsível. */
+
+/* ---------------------------------------------------------------- movimento
+   Curto e discreto. Nunca começa em opacity:0 — animação congelada deixava a
+   tela em branco. */
+
+@keyframes surgir {
+  from {
+    transform: translateY(8px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.surgir {
+  animation: surgir 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes brilho {
+  from {
+    background-position: -400px 0;
+  }
+  to {
+    background-position: 400px 0;
+  }
+}
+
+.esqueleto {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.07) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 800px 100%;
+  animation: brilho 1.3s linear infinite;
+  border-radius: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surgir,
+  .esqueleto {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }

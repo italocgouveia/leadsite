@@ -6,21 +6,38 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:generate": "drizzle-kit generate",
+    "test:deteccao": "tsx src/lib/gen/__testes__/deteccao.test-manual.ts",
+    "test:telefone": "tsx src/lib/__testes__/telefone.test-manual.ts",
+    "test:proposta": "tsx src/lib/__testes__/proposta.test-manual.ts",
+    "test:produto": "tsx src/lib/__testes__/produto.test-manual.ts",
+    "test:receita": "tsx src/lib/__testes__/receita.test-manual.ts",
+    "test:oculto": "tsx src/lib/__testes__/oculto.test-manual.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.118.0",
+    "@google/genai": "^2.17.1",
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
     "next": "16.3.1",
+    "next-auth": "^5.0.0-beta.32",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }

@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# o exemplo NAO tem segredo e precisa ir junto: e o mapa das variaveis
 
 # vercel
 .vercel
@@ -39,3 +40,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+.env*
+
+# rascunhos locais que nao fazem parte do projeto
+id.txt
+
+# O exemplo NAO tem segredo e precisa ir junto: e o mapa das variaveis.
+# Fica no fim de proposito — como havia dois `.env*` no arquivo, a excecao
+# posta no meio era anulada pelo padrao que vinha depois.
+!.env.example

@@ -1,0 +1,330 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { ETAPAS, type Lead, type Etapa, type TipoScript } from "@/lib/db/schema";
+import { CartaoFunil, Coluna } from "./coluna";
+
+const TIPOS: { valor: TipoScript; rotulo: string }[] = [
+  { valor: "whatsapp", rotulo: "Mensagem WhatsApp" },
+  { valor: "ligacao", rotulo: "Roteiro de ligação" },
+  { valor: "reuniao", rotulo: "Roteiro da reunião" },
+  { valor: "objecao", rotulo: "Quebrar objeção" },
+];
+
+export default function CrmPage() {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [aberto, setAberto] = useState<Lead | null>(null);
+
+  // Arraste: qual card está na mão e sobre qual coluna ele está.
+  const [arrastando, setArrastando] = useState<string | null>(null);
+  const [colunaAlvo, setColunaAlvo] = useState<Etapa | null>(null);
+
+  // Nada de setState síncrono aqui: `carregando` já nasce true e só muda
+  // depois do await, senão o React re-renderiza em cascata.
+  const carregar = useCallback(async () => {
+    try {
+      const res = await fetch("/api/leads/list?crm=1");
+      const data = await res.json();
+      setLeads(data.leads ?? []);
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  /**
+   * Move otimista: a coluna muda na hora e a requisição vai depois.
+   * Se o servidor recusar, desfaz — arrastar tem que parecer instantâneo.
+   */
+  async function mover(id: string, etapa: Etapa) {
+    const anterior = leads.find((l) => l.id === id)?.etapa;
+    if (!anterior || anterior === etapa) return;
+
+    setLeads((atual) => atual.map((l) => (l.id === id ? { ...l, etapa } : l)));
+
+    const res = await fetch("/api/leads/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [id], etapa }),
+    });
+
+    if (!res.ok) {
+      setLeads((atual) => atual.map((l) => (l.id === id ? { ...l, etapa: anterior } : l)));
+    }
+  }
+
+  async function exportar() {
+    const res = await fetch("/api/leads/export", { method: "POST" });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const fechados = leads.filter((l) => l.etapa === "fechado").length;
+  const ativos = leads.filter(
+    (l) => l.etapa !== "fechado" && l.etapa !== "perdido",
+  ).length;
+
+  return (
+    <main className="mx-auto max-w-[1600px] px-6 py-10">
+      <header className="surgir mb-7 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[40px] font-semibold leading-none">Funil</h1>
+          <p className="mt-2.5 text-[15px] text-[var(--texto-secundario)]">
+            {ativos} em andamento · {fechados} fechado(s) · arraste os cards entre as
+            colunas
+          </p>
+        </div>
+        <button onClick={exportar} className="btn-apple-sec shrink-0">
+          Exportar CSV
+        </button>
+      </header>
+
+      {carregando ? (
+        <div className="grid gap-4 lg:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="esqueleto h-48" />
+          ))}
+        </div>
+      ) : leads.length === 0 ? (
+        <div className="cartao-apple surgir py-24 text-center">
+          <p className="text-[17px]">Nenhum lead no funil ainda.</p>
+          <p className="mt-2 text-[15px] text-[var(--texto-secundario)]">
+            Vá em Leads e use{" "}
+            <strong className="font-medium">Enviar para CRM</strong> nos que valem a pena.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-6">
+          {ETAPAS.map((etapa) => {
+            const daEtapa = leads.filter((l) => l.etapa === etapa.valor);
+            return (
+              <Coluna
+                key={etapa.valor}
+                etapa={etapa.valor}
+                rotulo={etapa.rotulo}
+                leads={daEtapa}
+                alvo={colunaAlvo === etapa.valor && arrastando !== null}
+                aoEntrar={setColunaAlvo}
+                aoSair={() => setColunaAlvo(null)}
+                aoSoltar={(destino) => {
+                  if (arrastando) void mover(arrastando, destino);
+                  setArrastando(null);
+                  setColunaAlvo(null);
+                }}
+              >
+                {daEtapa.map((lead) => (
+                  <CartaoFunil
+                    key={lead.id}
+                    lead={lead}
+                    arrastando={arrastando === lead.id}
+                    aoIniciarArraste={() => setArrastando(lead.id)}
+                    aoTerminarArraste={() => {
+                      setArrastando(null);
+                      setColunaAlvo(null);
+                    }}
+                    aoAbrir={() => setAberto(lead)}
+                  />
+                ))}
+
+                {daEtapa.length === 0 && (
+                  <p className="py-6 text-center text-[12px] text-[var(--texto-secundario)]">
+                    Solte um card aqui
+                  </p>
+                )}
+              </Coluna>
+            );
+          })}
+        </div>
+      )}
+
+      {aberto && <PainelLead lead={aberto} aoFechar={() => setAberto(null)} />}
+    </main>
+  );
+}
+
+function PainelLead({ lead, aoFechar }: { lead: Lead; aoFechar: () => void }) {
+  const [tipo, setTipo] = useState<TipoScript>("whatsapp");
+  const [conteudo, setConteudo] = useState("");
+  const [gerando, setGerando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [notas, setNotas] = useState(lead.notas ?? "");
+  const [copiado, setCopiado] = useState(false);
+
+  async function gerar(regerar = false) {
+    setGerando(true);
+    setErro(null);
+    setConteudo("");
+    try {
+      const res = await fetch("/api/scripts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: lead.id, tipo, regerar }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.erro ?? "Falha ao gerar");
+      setConteudo(data.script.conteudo);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro inesperado");
+    } finally {
+      setGerando(false);
+    }
+  }
+
+  async function salvarNotas() {
+    await fetch("/api/leads/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [lead.id], notas }),
+    });
+  }
+
+  function copiar() {
+    navigator.clipboard.writeText(conteudo);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 1500);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/25 backdrop-blur-sm"
+      onClick={aoFechar}
+    >
+      <aside
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white "
+      >
+        <header className="sticky top-0 border-b border-[var(--divisoria)] bg-white px-6 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-semibold tracking-tight text-[var(--texto)]">{lead.nome}</h2>
+              <p className="text-[13px] text-[var(--texto-secundario)]">
+                {lead.categoria} · {lead.cidade}
+                {lead.telefone && ` · ${lead.telefone}`}
+              </p>
+            </div>
+            <button
+              onClick={aoFechar}
+              className="rounded-lg px-2 py-1 text-[var(--texto-secundario)] hover:bg-[var(--fundo-alt)]"
+            >
+              ✕
+            </button>
+          </div>
+        </header>
+
+        <div className="space-y-6 p-6">
+          <div className="flex flex-wrap gap-2">
+            {lead.whatsapp && (
+              <a
+                href={lead.whatsapp}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Abrir WhatsApp
+              </a>
+            )}
+            {lead.mapsUrl && (
+              <a
+                href={lead.mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-[var(--divisoria)] px-4 py-2 text-sm text-[var(--texto)] hover:bg-[var(--fundo-alt)]"
+              >
+                Google Maps
+              </a>
+            )}
+            {lead.website && (
+              <a
+                href={lead.website}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-[var(--divisoria)] px-4 py-2 text-sm text-[var(--texto)] hover:bg-[var(--fundo-alt)]"
+              >
+                Site atual
+              </a>
+            )}
+          </div>
+
+          <section>
+            <h3 className="mb-2 text-sm font-medium text-[var(--texto)]">Abordagem</h3>
+            <div className="mb-3 flex flex-wrap gap-1">
+              {TIPOS.map((t) => (
+                <button
+                  key={t.valor}
+                  onClick={() => {
+                    setTipo(t.valor);
+                    setConteudo("");
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs transition ${
+                    tipo === t.valor
+                      ? "bg-[var(--azul)] text-white"
+                      : "border border-[var(--divisoria)] text-[var(--texto-secundario)] hover:bg-[var(--fundo-alt)]"
+                  }`}
+                >
+                  {t.rotulo}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => gerar(false)}
+                disabled={gerando}
+                className="btn-apple"
+              >
+                {gerando ? "Escrevendo…" : "Gerar"}
+              </button>
+              {conteudo && (
+                <>
+                  <button
+                    onClick={() => gerar(true)}
+                    disabled={gerando}
+                    className="rounded-lg border border-[var(--divisoria)] px-4 py-2 text-sm text-[var(--texto)] hover:bg-[var(--fundo-alt)] disabled:opacity-50"
+                  >
+                    Outra versão
+                  </button>
+                  <button
+                    onClick={copiar}
+                    className="rounded-lg border border-[var(--divisoria)] px-4 py-2 text-sm text-[var(--texto)] hover:bg-[var(--fundo-alt)]"
+                  >
+                    {copiado ? "Copiado!" : "Copiar"}
+                  </button>
+                </>
+              )}
+            </div>
+
+            {erro && <p className="mt-3 text-sm text-red-600">{erro}</p>}
+
+            {conteudo && (
+              <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-[var(--divisoria)] bg-[var(--fundo-alt)] p-4 font-sans text-sm leading-relaxed text-[var(--texto)]">
+                {conteudo}
+              </pre>
+            )}
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-sm font-medium text-[var(--texto)]">Anotações</h3>
+            <textarea
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              onBlur={salvarNotas}
+              rows={5}
+              placeholder="O que rolou na conversa, objeção que ele levantou, quando ligar de novo…"
+              className="campo-apple"
+            />
+            <p className="mt-1 text-[13px] text-[var(--texto-secundario)]">Salva ao sair do campo.</p>
+          </section>
+        </div>
+      </aside>
+    </div>
+  );
+}
