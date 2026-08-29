@@ -39,6 +39,18 @@ export type LugarOsm = {
   nome: string;
   categoria?: string;
   endereco?: string;
+  /**
+   * Município do próprio elemento, quando o OSM informa `addr:city`.
+   *
+   * A busca por cidade não precisa disso — quem pesquisou já sabe a cidade.
+   * A busca por cachoeira precisa: ela varre um ESTADO inteiro, e sem este
+   * campo todos os leads seriam gravados como se fossem da capital. A frase
+   * de abordagem sairia "procurando chalés aqui em Minas Gerais", que
+   * qualquer dono de pousada lê como mensagem automática.
+   */
+  cidade?: string;
+  /** UF do próprio elemento. Preenchido pela geocodificação reversa. */
+  estado?: string;
   bairro?: string;
   telefone?: string;
   website?: string;
@@ -79,18 +91,24 @@ export type BuscaOsmResultado = {
   totalContatavel: number;
 };
 
-type AreaOsm = { tipo: "area"; areaId: number } | { tipo: "raio"; lat: number; lng: number };
+export type AreaOsm = { tipo: "area"; areaId: number } | { tipo: "raio"; lat: number; lng: number };
 
-/** Nominatim: descobre a área (cidade) ou o ponto central (bairro). */
-async function localizar(
-  cidade: string,
-  estado: string,
-  bairro?: string,
+/**
+ * Nominatim: resolve um nome de lugar numa área do Overpass.
+ *
+ * Recebe a consulta pronta, e não cidade+estado separados, porque o mesmo
+ * geocoder serve para escopos diferentes: "Capitólio, Minas Gerais, Brasil"
+ * para a busca por cidade, e "Minas Gerais, Brasil" para a busca por
+ * cachoeira, que varre o estado inteiro. Chumbar o formato da consulta aqui
+ * obrigaria a segunda a manter sua própria cópia do geocoder.
+ *
+ * `forcarRaio` existe para o caso do bairro: o polígono de bairro no OSM é
+ * irregular e muitas vezes nem existe, então usamos ponto + raio.
+ */
+export async function localizarArea(
+  consulta: string,
+  forcarRaio = false,
 ): Promise<AreaOsm> {
-  const consulta = bairro?.trim()
-    ? `${bairro}, ${cidade}, ${estado}, Brasil`
-    : `${cidade}, ${estado}, Brasil`;
-
   const url = `${NOMINATIM}?q=${encodeURIComponent(consulta)}&format=json&limit=1&countrycodes=br`;
 
   const res = await fetch(url, {
@@ -113,9 +131,7 @@ async function localizar(
 
   const lugar = dados[0];
 
-  // Com bairro usamos raio: o polígono de bairro no OSM é irregular e
-  // frequentemente nem existe. 2km cobre um bairro típico.
-  if (bairro?.trim()) {
+  if (forcarRaio) {
     return { tipo: "raio", lat: Number(lugar.lat), lng: Number(lugar.lon) };
   }
 
@@ -156,7 +172,7 @@ function montarConsulta(nicho: string, area: AreaOsm, limite: number): {
   };
 }
 
-type ElementoOverpass = {
+export type ElementoOverpass = {
   type: string;
   id: number;
   lat?: number;
@@ -178,7 +194,10 @@ export async function buscarNoOsm({
   quantidade = 20,
   soContataveis = true,
 }: BuscaOsmParams): Promise<BuscaOsmResultado> {
-  const area = await localizar(cidade, estado, bairro);
+  const area = await localizarArea(
+    bairro?.trim() ? `${bairro}, ${cidade}, ${estado}, Brasil` : `${cidade}, ${estado}, Brasil`,
+    Boolean(bairro?.trim()),
+  );
 
   /**
    * Pede MUITO mais do que precisa.
@@ -194,10 +213,31 @@ export async function buscarNoOsm({
 
   const dados = await consultarOverpass(ql);
 
+  return extrairLugares(dados.elements ?? [], { quantidade, soContataveis, buscaPorNome });
+}
+
+/**
+ * Converte elementos crus do Overpass em leads, deduplicando e ordenando.
+ *
+ * Separado de `buscarNoOsm` porque a busca por cidade não é a única forma de
+ * consultar: a busca por proximidade de cachoeira (ver `cachoeira.ts`) monta
+ * uma consulta Overpass completamente diferente, mas o que fazer com o
+ * resultado é idêntico. Sem esta separação, a segunda busca copiaria as ~30
+ * linhas de extração de tags — e perderia silenciosamente cada campo novo
+ * adicionado aqui depois.
+ */
+export function extrairLugares(
+  elements: ElementoOverpass[],
+  {
+    quantidade = 20,
+    soContataveis = true,
+    buscaPorNome = false,
+  }: { quantidade?: number; soContataveis?: boolean; buscaPorNome?: boolean } = {},
+): BuscaOsmResultado {
   const todos: LugarOsm[] = [];
   const vistos = new Set<string>();
 
-  for (const el of dados.elements ?? []) {
+  for (const el of elements) {
     const tags = el.tags ?? {};
     const nome = tags.name?.trim();
     if (!nome) continue; // sem nome não serve de lead
@@ -210,8 +250,23 @@ export async function buscarNoOsm({
     todos.push({
       osmId: `${el.type}/${el.id}`,
       nome,
-      categoria: tags.shop ?? tags.amenity ?? tags.office ?? tags.leisure ?? tags.healthcare,
+      /**
+       * `tourism` faltava nesta cadeia — hotel, pousada, chalé e casa de
+       * temporada vêm mapeados por essa chave, não por `shop`/`amenity`.
+       *
+       * Sem ela, todo estabelecimento de hospedagem chegava com `categoria`
+       * indefinida, e o chamador caía no fallback de usar o TEXTO que a
+       * pessoa digitou na busca (`params.nicho`, ver route.ts). Funcionava
+       * por coincidência para "pousada" e "hotel" — o texto batia com um
+       * apelido cadastrado — mas "casa de temporada" tem espaço, o detector
+       * de tag do OSM (`categoria-nome.ts:pareceOsm`) confundia isso com tag
+       * não traduzida, e a mensagem saía chamando o lead de "negócio"
+       * genérico em vez de "casa de temporada".
+       */
+      categoria:
+        tags.shop ?? tags.amenity ?? tags.office ?? tags.leisure ?? tags.healthcare ?? tags.tourism,
       endereco: montarEndereco(tags),
+      cidade: tags["addr:city"] ?? tags["addr:town"] ?? tags["addr:municipality"],
       bairro: tags["addr:suburb"] ?? tags["addr:neighbourhood"],
       telefone:
         tags.phone ??
@@ -273,7 +328,7 @@ const TIMEOUT_ESPELHO_MS = 28_000;
  * 3. NÃO repetir em 4xx. Erro 400 é consulta malformada nossa — insistir em
  *    outro servidor só perde tempo e dá a mensagem errada pro usuário.
  */
-async function consultarOverpass(ql: string): Promise<{ elements?: ElementoOverpass[] }> {
+export async function consultarOverpass(ql: string): Promise<{ elements?: ElementoOverpass[] }> {
   const falhas: string[] = [];
 
   for (const url of ESPELHOS_OVERPASS) {

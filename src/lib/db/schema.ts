@@ -11,6 +11,40 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+/**
+ * Ciclo de vida de uma mensagem de automação.
+ *
+ * `rascunho` e `aprovada` são estados SEUS: nada sai sem você aprovar.
+ * `na-fila` em diante é o worker. `respondida` é terminal e trava novos
+ * contatos para aquele lead.
+ */
+export const STATUS_MENSAGEM = [
+  "rascunho",
+  "aprovada",
+  "na-fila",
+  "enviada",
+  "entregue",
+  "respondida",
+  "erro",
+  "cancelada",
+] as const;
+export type StatusMensagem = (typeof STATUS_MENSAGEM)[number];
+
+/**
+ * Ciclo de vida de uma campanha.
+ *
+ * `rodando` é o único estado em que a fila entrega mensagem dessa campanha.
+ * Pausar não perde nada: as mensagens ficam aprovadas, esperando.
+ */
+export const STATUS_CAMPANHA = [
+  "rascunho",
+  "rodando",
+  "pausada",
+  "concluida",
+  "cancelada",
+] as const;
+export type StatusCampanha = (typeof STATUS_CAMPANHA)[number];
+
 /** Resultado do teste de cliente oculto. Ver lib/teste-oculto.ts. */
 export type TesteOcultoSalvo = {
   enviadoEm: string;
@@ -98,11 +132,59 @@ export const leads = pgTable(
     receitaEm: timestamp("receita_em", { withTimezone: true }),
 
     /**
+     * Pediu para não ser mais contatado, ou você decidiu não contatar.
+     *
+     * É uma trava DURA: a fila pula esse lead sem nem montar mensagem. Existe
+     * porque respeitar "não me manda mais" é obrigação legal e a única coisa
+     * que separa prospecção de spam.
+     */
+    naoContatar: boolean("nao_contatar").notNull().default(false),
+
+    /**
+     * Um humano assumiu a conversa deste lead.
+     *
+     * Trava dura para a RESPOSTA AUTOMÁTICA (ver lib/resposta-automatica.ts) —
+     * diferente de `naoContatar`, não impede campanha nem fila, só impede o
+     * sistema de responder sozinho por WhatsApp. Setado pelo botão "Assumir
+     * conversa" na central de Conversas.
+     */
+    atendimentoHumano: boolean("atendimento_humano").notNull().default(false),
+
+    /**
      * Teste de cliente oculto: você mandou uma pergunta de cliente e anotou o
      * que aconteceu. É o que autoriza a abordagem a AFIRMAR que o atendimento
      * demorou — sem este registro, o sistema se recusa a gerar essa mensagem.
      */
     testeOculto: jsonb("teste_oculto").$type<TesteOcultoSalvo>(),
+
+    /** Última classificação da resposta deste lead. Ver lib/classificar.ts. */
+    intencao: text("intencao"),
+    confiancaIntencao: integer("confianca_intencao"),
+    /** Quando o lead falou com você pela última vez. */
+    ultimaInteracao: timestamp("ultima_interacao", { withTimezone: true }),
+    /** Valor estimado do negócio, preenchido por você. Alimenta o pipeline. */
+    valorPotencial: integer("valor_potencial"),
+
+    /**
+     * O que VOCÊ decidiu vender para este lead.
+     *
+     * Diferente de `avaliar(lead).produto`, que é um palpite do sistema a
+     * partir do ramo e da presença online. Este campo é a sua escolha, e ela
+     * vence: o motor pode sugerir site para uma oficina, mas se na conversa
+     * apareceu que o problema é ordem de serviço, quem manda é o que você
+     * marcou aqui.
+     *
+     * Nulo = ainda não decidido; a tela mostra a sugestão do sistema.
+     */
+    servico: text("servico"),
+
+    /**
+     * Quando falar de novo. É o campo que responde "o que eu faço hoje?".
+     *
+     * Sem ele o painel só mostra o passado (último contato) e você precisa
+     * lembrar de cabeça quem prometeu retorno para quinta.
+     */
+    proximoContato: timestamp("proximo_contato", { withTimezone: true }),
 
     /** Você já abriu/analisou este lead. Serve pra separar novo de repetido. */
     visto: boolean("visto").notNull().default(false),
@@ -206,6 +288,201 @@ export const logos = pgTable(
 );
 
 /**
+ * Mensagens da automação de contato.
+ *
+ * Uma linha por mensagem, não por lead: o histórico completo fica aqui, e é
+ * ele que responde "já falei com essa empresa? quando? o que eu disse?".
+ *
+ * O índice único em `leadId` + `status` não existe de propósito — o mesmo lead
+ * pode ter vários contatos ao longo do tempo. A trava contra duplicata é de
+ * REGRA (ver lib/fila.ts), porque "duplicado" aqui é "mensagem pendente ou
+ * enviada nos últimos N dias", coisa que índice não expressa.
+ */
+export const mensagens = pgTable(
+  "mensagens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+
+    texto: text("texto").notNull(),
+    status: text("status").$type<StatusMensagem>().notNull().default("rascunho"),
+
+    /** Qual produto esta abordagem oferece — site, chatbot ou sistema. */
+    produto: text("produto"),
+    /** Como o texto nasceu: modelo pronto, gerado por IA, ou resposta automática. */
+    origem: text("origem").$type<"modelo" | "ia" | "resposta-automatica">().notNull().default("modelo"),
+
+    tentativas: integer("tentativas").notNull().default(0),
+    /** Última falha, em texto — para você entender por que não foi. */
+    erro: text("erro"),
+    /** Id que o provedor devolveu, para casar webhook de status depois. */
+    provedorId: text("provedor_id"),
+
+    /** A qual campanha pertence. Null = mensagem avulsa, fora de campanha. */
+    campanhaId: uuid("campanha_id").references(() => campanhas.id, { onDelete: "set null" }),
+    /** 0 = primeiro contato, 1 = primeiro follow-up, e assim por diante. */
+    rodada: integer("rodada").notNull().default(0),
+
+    /**
+     * Quem sai primeiro. Maior vai antes. Guarda a pontuação do lead.
+     *
+     * Existe porque `criadoEm` NÃO desempata: um insert em lote de 132 linhas
+     * grava o mesmo `now()` em todas — `now()` é constante dentro de um
+     * statement no Postgres. A fila ordenava por `criadoEm`, então a ordem
+     * real virava a que o banco quisesse devolver, e o cuidado de ordenar os
+     * leads por pontuação antes de inserir era jogado fora em silêncio.
+     *
+     * O efeito prático era o pior possível: o teto diário corta o disparo no
+     * fim do dia, e quem ficava para depois era sorteado em vez de ser o
+     * lead mais fraco.
+     */
+    prioridade: integer("prioridade").notNull().default(0),
+
+    aprovadaEm: timestamp("aprovada_em", { withTimezone: true }),
+    enviadaEm: timestamp("enviada_em", { withTimezone: true }),
+    entregueEm: timestamp("entregue_em", { withTimezone: true }),
+    respondidaEm: timestamp("respondida_em", { withTimezone: true }),
+
+    /**
+     * Quando esta mensagem foi RESERVADA para envio (virou `na-fila`).
+     *
+     * É o que permite distinguir "outro processo está enviando isto agora"
+     * (recente) de "um processo morreu no meio do envio" (antigo demais).
+     * Ver a trava atômica em lib/fila.ts (`reservarMensagem`).
+     */
+    processandoDesde: timestamp("processando_desde", { withTimezone: true }),
+
+    criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("mensagens_lead_idx").on(t.leadId),
+    index("mensagens_status_idx").on(t.status),
+    index("mensagens_enviada_idx").on(t.enviadaEm),
+  ],
+);
+
+/**
+ * Campanha: um lote de contatos com começo, meio e fim.
+ *
+ * Existe para o botão "Iniciar campanha" significar alguma coisa. Sem ela, a
+ * fila é um balde único e você não consegue responder "quantos daquele lote
+ * de oficinas responderam?" — que é a pergunta que decide o próximo lote.
+ *
+ * Pausar/parar é por AQUI, não mensagem a mensagem: quando algo dá errado no
+ * meio de um disparo, você precisa de um botão só.
+ */
+export const campanhas = pgTable(
+  "campanhas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    nome: text("nome").notNull(),
+    status: text("status").$type<StatusCampanha>().notNull().default("rascunho"),
+
+    /** O que estava filtrado quando você montou — para repetir depois. */
+    filtro: jsonb("filtro").$type<Record<string, unknown>>(),
+    /** Qual produto esta campanha oferece. */
+    produto: text("produto"),
+
+    iniciadaEm: timestamp("iniciada_em", { withTimezone: true }),
+    concluidaEm: timestamp("concluida_em", { withTimezone: true }),
+
+    criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("campanhas_status_idx").on(t.status)],
+);
+
+/** Categorias de intenção que podem disparar uma resposta automática. */
+export const INTENCOES_COM_RESPOSTA_AUTOMATICA = [
+  "orcamento",
+  "interessado",
+  "depois",
+  "agendamento",
+] as const;
+export type IntencaoComRespostaAutomatica = (typeof INTENCOES_COM_RESPOSTA_AUTOMATICA)[number];
+
+/**
+ * Texto de resposta automática por categoria de intenção.
+ *
+ * Uma linha por categoria (não por regra): o motor de detecção continua em
+ * lib/classificar.ts, calibrado por ordem e peso. Aqui só mora o TEXTO que
+ * sai quando aquela categoria é detectada com confiança suficiente — editável
+ * pelo painel, sem risco de destravar a ordem das regras.
+ */
+export const respostasAutomaticas = pgTable("respostas_automaticas", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  intencao: text("intencao").$type<IntencaoComRespostaAutomatica>().notNull(),
+  texto: text("texto").notNull().default(""),
+  /** Desligada até você escrever o texto e ligar de propósito. */
+  ativa: boolean("ativa").notNull().default(false),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("respostas_automaticas_intencao_idx").on(t.intencao)]);
+
+/**
+ * Conversas: cada mensagem recebida do lead.
+ *
+ * Guardar o texto original importa por dois motivos: a classificação pode
+ * errar e você precisa conferir contra o que a pessoa realmente escreveu, e
+ * `provedorMsgId` com índice único é o que torna o webhook IDEMPOTENTE — o
+ * provedor reenvia o mesmo evento quando não recebe 200 rápido, e sem essa
+ * trava a mesma resposta viraria três conversas e três classificações.
+ */
+export const conversas = pgTable(
+  "conversas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    /** Quem escreveu: o lead ou você. */
+    direcao: text("direcao").$type<"recebida" | "enviada">().notNull(),
+    texto: text("texto").notNull(),
+
+    /** Id da mensagem no provedor. Único: é a trava contra webhook repetido. */
+    provedorMsgId: text("provedor_msg_id"),
+
+    /** Não lida ainda na central de Conversas. Enviada nasce sempre lida. */
+    lida: boolean("lida").notNull().default(true),
+    /** Quem mandou, quando `direcao="enviada"`. Nulo em mensagens recebidas. */
+    autor: text("autor").$type<"automatico" | "humano" | "campanha">(),
+
+    intencao: text("intencao"),
+    confianca: integer("confianca"),
+    motivoClassificacao: text("motivo_classificacao"),
+
+    criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("conversas_lead_idx").on(t.leadId),
+    uniqueIndex("conversas_provedor_msg_idx").on(t.provedorMsgId),
+  ],
+);
+
+/**
+ * Log de eventos da automação.
+ *
+ * Append-only. Serve para responder "o que aconteceu às 14h32?" quando um
+ * disparo se comporta de forma estranha — sem isso, erro em fila é caixa
+ * preta e você só descobre o problema pelo resultado.
+ */
+export const eventos = pgTable(
+  "eventos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tipo: text("tipo").notNull(),
+    descricao: text("descricao").notNull(),
+    campanhaId: uuid("campanha_id").references(() => campanhas.id, { onDelete: "cascade" }),
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "cascade" }),
+    dados: jsonb("dados").$type<Record<string, unknown>>(),
+    criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("eventos_criado_idx").on(t.criadoEm), index("eventos_campanha_idx").on(t.campanhaId)],
+);
+
+/**
  * Configuração global do painel (linha única, id fixo = "default").
  * Marca d'água, pixels de rastreamento e domínio — tudo que é injetado
  * em TODO site gerado.
@@ -216,6 +493,62 @@ export const configuracoes = pgTable("configuracoes", {
   marcaDaguaAtiva: boolean("marca_dagua_ativa").notNull().default(true),
   marcaDaguaTexto: text("marca_dagua_texto").default("Feito com LeadSite"),
   marcaDaguaUrl: text("marca_dagua_url"),
+
+  /**
+   * Automação de WhatsApp.
+   *
+   * `provedorUrl` é proposital: não chumbamos Evolution, WAHA nem Cloud API.
+   * O sistema faz um POST no endpoint que você apontar — assim ele serve para
+   * o que você já tem rodando, e continua servindo quando você migrar.
+   */
+  automacaoAtiva: boolean("automacao_ativa").notNull().default(false),
+
+  /**
+   * Chave-mestra da resposta automática (ver lib/resposta-automatica.ts).
+   * Mesma filosofia de `automacaoAtiva`: desligada até você ligar de propósito.
+   */
+  respostaAutomaticaAtiva: boolean("resposta_automatica_ativa").notNull().default(false),
+
+  /**
+   * Configuração do provedor, em partes.
+   *
+   * `provedorUrl` (URL inteira montada à mão) saiu porque era exatamente onde
+   * o webhook acabava colado por engano. Agora o sistema monta a URL a partir
+   * de base + instância, e o usuário nunca precisa escrever o caminho.
+   * A coluna antiga fica para a migração e como histórico.
+   */
+  provedorTipo: text("provedor_tipo").$type<"evolution" | "waha" | "custom">(),
+  provedorBaseUrl: text("provedor_base_url"),
+  provedorInstancia: text("provedor_instancia"),
+  provedorEndpointCustom: text("provedor_endpoint_custom"),
+  /** Cifrado com AES-256-GCM quando SEGREDO_CHAVE existe. Nunca sai na API. */
+  provedorToken: text("provedor_token"),
+  /** Última verificação de conexão bem-sucedida. */
+  provedorTestadoEm: timestamp("provedor_testado_em", { withTimezone: true }),
+  provedorEstado: text("provedor_estado"),
+  /** Quando o webhook recebeu evento pela última vez. Prova que está ligado. */
+  webhookUltimoEm: timestamp("webhook_ultimo_em", { withTimezone: true }),
+
+  /** @deprecated Migrado para os campos acima. Mantido como backup. */
+  provedorUrl: text("provedor_url"),
+  /** Segundos entre um envio e o próximo. Abaixo de 30 o número vira alvo. */
+  intervaloSegundos: integer("intervalo_segundos").notNull().default(90),
+  /** Teto por dia. Disparo em volume é o que faz a Meta banir o número. */
+  limiteDiario: integer("limite_diario").notNull().default(30),
+  /** Dias antes de poder contatar o mesmo lead de novo. */
+  janelaRecontatoDias: integer("janela_recontato_dias").notNull().default(30),
+
+  /**
+   * Janela de horário permitido para envio automático, em America/Sao_Paulo.
+   * Desligada por padrão (envia a qualquer hora, comportamento de sempre).
+   * Não cruza meia-noite — janela tipo 22:00–06:00 não é suportada.
+   */
+  horarioEnvioAtivo: boolean("horario_envio_ativo").notNull().default(false),
+  horarioInicio: text("horario_inicio").notNull().default("08:00"),
+  horarioFim: text("horario_fim").notNull().default("20:00"),
+
+  /** Pequena variação aleatória no intervalo entre envios (0–20% a mais). */
+  variacaoAleatoriaAtiva: boolean("variacao_aleatoria_ativa").notNull().default(false),
 
   pixelFacebook: text("pixel_facebook"),
   googleAnalytics: text("google_analytics"),
@@ -279,13 +612,56 @@ export type Temperatura = "quente" | "morno" | "frio";
  * "reuniao" e "fechado" foram renomeados (não removidos): viraram "respondeu"
  * e "cliente", que é a linguagem de quem está prospectando, não de CRM.
  */
-export type Etapa =
+/**
+ * Funil de 9 etapas — o caminho normal, do primeiro contato ao fechamento.
+ *
+ * Os nomes antigos ("contatado", "cliente", "perdido") saíram, mas os dados
+ * NÃO foram perdidos: `migrarEtapa` converte cada um para o equivalente novo,
+ * e a migração roda uma vez sobre a base existente.
+ */
+export type EtapaFunil =
   | "novo"
-  | "contatado"
+  | "analisado"
+  | "qualificado"
+  | "mensagem-enviada"
   | "respondeu"
+  | "interessado"
+  | "reuniao"
   | "proposta"
-  | "cliente"
-  | "perdido";
+  | "fechado";
+
+/**
+ * Status PARALELOS: saídas do funil, não etapas dele.
+ *
+ * Ficam separados de propósito. Misturar "sem interesse" no meio das nove
+ * colunas do funil faz a coluna de descarte crescer e esconder o trabalho que
+ * está andando — e o funil deixa de responder "onde o processo empacou?".
+ *
+ * Nenhum deles apaga o lead. Histórico se preserva sempre.
+ */
+export type EtapaParalela =
+  | "sem-interesse"
+  | "nao-respondeu"
+  | "ja-tem-sistema"
+  | "opt-out"
+  | "necessita-analise"
+  | "contato-invalido"
+  | "campanha-cancelada";
+
+export type Etapa = EtapaFunil | EtapaParalela;
+
+/** Converte os nomes antigos para os novos, preservando o significado. */
+export function migrarEtapa(antiga: string): Etapa {
+  const mapa: Record<string, Etapa> = {
+    novo: "novo",
+    contatado: "mensagem-enviada",
+    respondeu: "respondeu",
+    proposta: "proposta",
+    cliente: "fechado",
+    perdido: "sem-interesse",
+  };
+  return mapa[antiga] ?? (antiga as Etapa);
+}
 export type TipoScript = "whatsapp" | "ligacao" | "reuniao" | "objecao";
 
 export type Lead = typeof leads.$inferSelect;
@@ -295,12 +671,39 @@ export type SiteVersion = typeof siteVersions.$inferSelect;
 export type Script = typeof scripts.$inferSelect;
 export type Logo = typeof logos.$inferSelect;
 export type Configuracao = typeof configuracoes.$inferSelect;
+export type RespostaAutomatica = typeof respostasAutomaticas.$inferSelect;
+export type Conversa = typeof conversas.$inferSelect;
 
-export const ETAPAS: { valor: Etapa; rotulo: string }[] = [
-  { valor: "novo", rotulo: "Novo" },
-  { valor: "contatado", rotulo: "Contatado" },
-  { valor: "respondeu", rotulo: "Respondeu" },
-  { valor: "proposta", rotulo: "Proposta enviada" },
-  { valor: "cliente", rotulo: "Cliente" },
-  { valor: "perdido", rotulo: "Perdido" },
+/** As nove colunas do funil, na ordem. É esta lista que o kanban desenha. */
+export const ETAPAS_FUNIL: { valor: EtapaFunil; rotulo: string; cor: string }[] = [
+  { valor: "novo", rotulo: "Novo lead", cor: "#0060c0" },
+  { valor: "analisado", rotulo: "Analisado", cor: "#3f6fd8" },
+  { valor: "qualificado", rotulo: "Qualificado", cor: "#6b4ec7" },
+  { valor: "mensagem-enviada", rotulo: "Mensagem enviada", cor: "#8a4bb8" },
+  { valor: "respondeu", rotulo: "Respondeu", cor: "#c2410c" },
+  { valor: "interessado", rotulo: "Interessado", cor: "#d97706" },
+  { valor: "reuniao", rotulo: "Reunião", cor: "#b45309" },
+  { valor: "proposta", rotulo: "Proposta", cor: "#8a6100" },
+  { valor: "fechado", rotulo: "Fechado", cor: "#128c4a" },
 ];
+
+/** Saídas do funil. Aparecem fora do kanban, numa faixa própria. */
+export const ETAPAS_PARALELAS: { valor: EtapaParalela; rotulo: string; emoji: string }[] = [
+  { valor: "sem-interesse", rotulo: "Sem interesse", emoji: "❄️" },
+  { valor: "nao-respondeu", rotulo: "Não respondeu", emoji: "💤" },
+  { valor: "ja-tem-sistema", rotulo: "Já possui sistema", emoji: "🏢" },
+  { valor: "opt-out", rotulo: "Não contactar", emoji: "🚫" },
+  { valor: "necessita-analise", rotulo: "Necessita análise", emoji: "⚠️" },
+  { valor: "contato-invalido", rotulo: "Contato inválido", emoji: "❌" },
+  { valor: "campanha-cancelada", rotulo: "Campanha cancelada", emoji: "🛑" },
+];
+
+/** Compatibilidade: telas antigas continuam importando ETAPAS. */
+export const ETAPAS: { valor: Etapa; rotulo: string }[] = [
+  ...ETAPAS_FUNIL.map((e) => ({ valor: e.valor as Etapa, rotulo: e.rotulo })),
+  ...ETAPAS_PARALELAS.map((e) => ({ valor: e.valor as Etapa, rotulo: `${e.emoji} ${e.rotulo}` })),
+];
+
+export function ehEtapaDoFunil(e: Etapa): e is EtapaFunil {
+  return ETAPAS_FUNIL.some((x) => x.valor === e);
+}

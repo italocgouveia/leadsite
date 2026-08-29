@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { eq, inArray } from "drizzle-orm";
-import { db, leads } from "@/lib/db";
+import { db, leads, ETAPAS, type Etapa } from "@/lib/db";
 
 const Body = z.object({
   ids: z.array(z.string().uuid()).min(1),
-  etapa: z
-    .enum(["novo", "contatado", "respondeu", "proposta", "cliente", "perdido"])
-    .optional(),
+  // Aceita qualquer etapa do funil ou status paralelo, sem lista duplicada.
+  etapa: z.string().refine((v) => ETAPAS.some((e) => e.valor === v)).optional(),
   notas: z.string().max(5000).optional(),
   // Dados que só o dono do negócio sabe — habilitam as seções ricas do site.
   precos: z.string().max(3000).optional(),
@@ -44,7 +43,7 @@ export async function POST(request: Request) {
   const atualizados = await db
     .update(leads)
     .set({
-      ...(params.etapa !== undefined ? { etapa: params.etapa } : {}),
+      ...(params.etapa !== undefined ? { etapa: params.etapa as Etapa } : {}),
       ...(params.notas !== undefined ? { notas: params.notas } : {}),
       ...Object.fromEntries(
         CAMPOS_EXTRA.filter((c) => params[c] !== undefined).map((c) => [c, params[c]]),

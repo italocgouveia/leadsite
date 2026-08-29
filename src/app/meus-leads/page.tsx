@@ -7,6 +7,7 @@ import { categoriaSingular } from "@/lib/categoria-nome";
 import { avaliar, ehOportunidade } from "@/lib/oportunidade";
 import ModalProposta from "@/components/modal-proposta";
 import BotaoExportar from "@/components/botao-exportar";
+import ExcluirLead from "@/components/excluir-lead";
 
 type Filtro = "todos" | Etapa;
 
@@ -23,7 +24,7 @@ const ROTULO: Record<Etapa, string> = Object.fromEntries(
  * fazer, não o que já foi feito.
  */
 function BotaoProposta({ lead, aoAbrir }: { lead: Lead; aoAbrir: () => void }) {
-  const jaEnviou = lead.etapa === "proposta" || lead.etapa === "cliente";
+  const jaEnviou = lead.etapa === "proposta" || lead.etapa === "fechado";
   const canal = lead.whatsapp ? "WhatsApp" : lead.instagram ? "Instagram" : "texto";
 
   return (
@@ -83,7 +84,7 @@ export default function MeusLeads() {
     encontrados: leads.length,
     oportunidades: leads.filter((l) => ehOportunidade(l) && l.etapa === "novo").length,
     propostas: leads.filter((l) => l.etapa === "proposta").length,
-    clientes: leads.filter((l) => l.etapa === "cliente").length,
+    clientes: leads.filter((l) => l.etapa === "fechado").length,
   };
 
   const visiveis = filtro === "todos" ? leads : leads.filter((l) => l.etapa === filtro);
@@ -254,8 +255,15 @@ export default function MeusLeads() {
                         ))}
                       </select>
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <BotaoProposta lead={lead} aoAbrir={() => setProposta(lead)} />
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <BotaoProposta lead={lead} aoAbrir={() => setProposta(lead)} />
+                        <ExcluirLead
+                          id={lead.id}
+                          nome={lead.nome}
+                          aoExcluir={() => setLeads((l) => l.filter((x) => x.id !== lead.id))}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -312,6 +320,11 @@ export default function MeusLeads() {
                     ))}
                   </select>
                   <BotaoProposta lead={lead} aoAbrir={() => setProposta(lead)} />
+                  <ExcluirLead
+                    id={lead.id}
+                    nome={lead.nome}
+                    aoExcluir={() => setLeads((l) => l.filter((x) => x.id !== lead.id))}
+                  />
                 </div>
               </li>
             );
@@ -325,7 +338,7 @@ export default function MeusLeads() {
           aoFechar={() => setProposta(null)}
           aoEnviar={() => {
             setLeads((l) =>
-              l.map((x) => (x.id === proposta.id ? { ...x, etapa: "proposta" } : x)),
+              l.map((x) => (x.id === proposta.id ? { ...x, etapa: "mensagem-enviada" } : x)),
             );
             setProposta(null);
           }}

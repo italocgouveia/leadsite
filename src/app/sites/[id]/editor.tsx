@@ -91,7 +91,7 @@ export default function Editor({
   }
 
   return (
-    <main className="mx-auto max-w-[1600px] px-6 py-8">
+    <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">
       <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
         <div className="space-y-5">
           <section className="cartao-apple p-5">

@@ -125,6 +125,9 @@ export const CATEGORIAS: Categoria[] = [
   // Turismo
   { termo: "pousada", grupo: "Turismo" },
   { termo: "hotel", grupo: "Turismo" },
+  { termo: "chalé", grupo: "Turismo" },
+  { termo: "casa de temporada", grupo: "Turismo" },
+  { termo: "camping", grupo: "Turismo" },
   { termo: "agência de viagens", grupo: "Turismo" },
   { termo: "chácara para locação", grupo: "Turismo" },
 ];

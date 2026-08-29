@@ -8,7 +8,7 @@ import CampoCidade from "@/components/campo-cidade";
 import CartaoLead from "@/components/cartao-lead";
 import ModalProposta from "@/components/modal-proposta";
 
-type Filtro = "melhores" | "sem-site" | "site-ruim" | "todos";
+type Filtro = "melhores" | "sem-site" | "so-social" | "site-ruim" | "todos";
 
 /**
  * Enquanto a busca roda, o texto vai mudando conforme o que realmente
@@ -22,7 +22,32 @@ const PASSOS = [
   "Calculando as melhores oportunidades…",
 ];
 
+/** Nome por extenso: é o que o Nominatim resolve para uma área do OSM. */
+const ESTADOS = [
+  "Acre", "Alagoas", "Amapá", "Amazonas", "Bahia", "Ceará",
+  "Distrito Federal", "Espírito Santo", "Goiás", "Maranhão",
+  "Mato Grosso", "Mato Grosso do Sul", "Minas Gerais", "Pará",
+  "Paraíba", "Paraná", "Pernambuco", "Piauí", "Rio de Janeiro",
+  "Rio Grande do Norte", "Rio Grande do Sul", "Rondônia", "Roraima",
+  "Santa Catarina", "São Paulo", "Sergipe", "Tocantins",
+];
+
 export default function Buscar() {
+  /**
+   * Dois modos de busca, porque são perguntas geográficas diferentes.
+   *
+   * "cidade" procura dentro do polígono do município — serve para oficina,
+   * dentista, restaurante, que é onde o cliente mora.
+   *
+   * "cachoeira" ignora divisa e procura hospedagem num raio das cachoeiras
+   * mapeadas do estado inteiro. Chalé de temporada não se organiza por
+   * município: o bom fica na estrada de terra entre duas cidades pequenas
+   * que ninguém pensaria em digitar.
+   */
+  const [modo, setModo] = useState<"cidade" | "cachoeira">("cidade");
+  const [uf, setUf] = useState("Minas Gerais");
+  const [raioKm, setRaioKm] = useState(15);
+
   const [nicho, setNicho] = useState("");
   const [cidade, setCidade] = useState<{ nome: string; uf: string } | null>(null);
   const [bairro, setBairro] = useState("");
@@ -59,19 +84,29 @@ export default function Buscar() {
     setErro(null);
     setAviso(null);
     try {
-      if (!cidade) throw new Error("Escolha a cidade na lista — é ela que define o estado.");
-
-      const res = await fetch("/api/leads/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nicho,
-          cidade: cidade.nome,
-          estado: cidade.uf,
-          bairro,
-          quantidade,
-        }),
-      });
+      const res =
+        modo === "cachoeira"
+          ? await fetch("/api/leads/cachoeira", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ estado: uf, raioKm, quantidade }),
+            })
+          : await (async () => {
+              if (!cidade) {
+                throw new Error("Escolha a cidade na lista — é ela que define o estado.");
+              }
+              return fetch("/api/leads/search", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  nicho,
+                  cidade: cidade.nome,
+                  estado: cidade.uf,
+                  bairro,
+                  quantidade,
+                }),
+              });
+            })();
       const data = await res.json();
       if (!res.ok) throw new Error(data.erro ?? "Erro na busca");
 
@@ -94,6 +129,17 @@ export default function Buscar() {
     melhores: lista.filter(ehOportunidade).length,
     semSite: lista.filter((l) => l.statusSite === "sem-site" || l.statusSite === "nao-verificado")
       .length,
+    /**
+     * "Só rede social" ganhou contador próprio porque é o melhor lead que
+     * existe para vender site: o negócio já investe em presença online e a
+     * única vitrine dele é um perfil de Instagram ou Facebook.
+     *
+     * O filtro olha `statusSite`, NÃO o campo `instagram`. Medido nos 150
+     * leads de hospedagem: o campo `instagram` está vazio em 12 de 15 desses
+     * casos, porque quem mapeou pôs a URL do Instagram no campo `website`.
+     * Filtrar por "tem instagram" perderia oitenta por cento deles.
+     */
+    soSocial: lista.filter((l) => l.statusSite === "so-rede-social").length,
     ruim: lista.filter((l) =>
       ["site-fora-do-ar", "sem-ssl", "so-agregador", "so-rede-social"].includes(l.statusSite),
     ).length,
@@ -105,6 +151,7 @@ export default function Buscar() {
     if (filtro === "melhores") return ehOportunidade(l);
     if (filtro === "sem-site")
       return l.statusSite === "sem-site" || l.statusSite === "nao-verificado";
+    if (filtro === "so-social") return l.statusSite === "so-rede-social";
     return ["site-fora-do-ar", "sem-ssl", "so-agregador", "so-rede-social"].includes(
       l.statusSite,
     );
@@ -122,50 +169,126 @@ export default function Buscar() {
       </header>
 
       <form onSubmit={buscar} className="surgir mx-auto max-w-3xl">
-        <div className="cartao flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
-          <div className="flex flex-1 items-center gap-2 px-2">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              className="shrink-0 text-[var(--texto-3)]"
+        {/* Escolha do modo. Fica ACIMA dos campos porque muda quais campos existem. */}
+        <div className="mb-2 flex flex-wrap justify-center gap-1.5">
+          {(
+            [
+              ["cidade", "Por cidade", "Oficina, dentista, restaurante…"],
+              ["cachoeira", "Perto de cachoeira", "Chalé e pousada de temporada"],
+            ] as const
+          ).map(([valor, rotulo, dica]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => setModo(valor)}
+              title={dica}
+              className={`rounded-[10px] px-3 py-2 text-[13px] transition ${
+                modo === valor
+                  ? "bg-[var(--azul-fraco)] font-medium text-[var(--azul)]"
+                  : "text-[var(--texto-2)] hover:bg-[var(--superficie)] hover:text-[var(--texto)]"
+              }`}
             >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-            <input
-              ref={campoRef}
-              required
-              list="categorias"
-              value={nicho}
-              onChange={(e) => setNicho(e.target.value)}
-              placeholder="O que você procura? Oficina, dentista, restaurante…"
-              className="w-full border-0 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--texto-3)]"
-            />
-            <datalist id="categorias">
-              {CATEGORIAS.map((c) => (
-                <option key={c.termo} value={c.termo} />
-              ))}
-            </datalist>
-          </div>
+              {rotulo}
+            </button>
+          ))}
+        </div>
 
-          <div className="hidden h-6 w-px bg-[var(--linha)] sm:block" />
+        <div className="cartao flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+          {modo === "cidade" ? (
+            <>
+              <div className="flex flex-1 items-center gap-2 px-2">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  className="shrink-0 text-[var(--texto-3)]"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input
+                  ref={campoRef}
+                  required
+                  list="categorias"
+                  value={nicho}
+                  onChange={(e) => setNicho(e.target.value)}
+                  placeholder="O que você procura? Oficina, dentista, restaurante…"
+                  className="w-full border-0 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--texto-3)]"
+                />
+                <datalist id="categorias">
+                  {CATEGORIAS.map((c) => (
+                    <option key={c.termo} value={c.termo} />
+                  ))}
+                </datalist>
+              </div>
 
-          <CampoCidade
-            valor={cidade}
-            aoEscolher={setCidade}
-            placeholder="Cidade"
-            className="min-w-0 sm:w-56"
-          />
+              <div className="hidden h-6 w-px bg-[var(--linha)] sm:block" />
+
+              <CampoCidade
+                valor={cidade}
+                aoEscolher={setCidade}
+                placeholder="Cidade"
+                className="min-w-0 sm:w-56"
+              />
+            </>
+          ) : (
+            <>
+              {/**
+               * Sem campo de nicho aqui de propósito: o modo já É a pergunta
+               * ("hospedagem perto de cachoeira"). Deixar o campo aberto
+               * sugeriria que dá para procurar oficina perto de cachoeira, o
+               * que a consulta não faz.
+               */}
+              <label className="flex flex-1 items-center gap-2 px-2">
+                <span className="shrink-0 text-[13px] text-[var(--texto-2)]">Estado</span>
+                <select
+                  value={uf}
+                  onChange={(e) => setUf(e.target.value)}
+                  className="w-full border-0 bg-transparent py-2.5 text-[15px] outline-none"
+                >
+                  {ESTADOS.map((e) => (
+                    <option key={e} value={e}>
+                      {e}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="hidden h-6 w-px bg-[var(--linha)] sm:block" />
+
+              <label className="flex items-center gap-2 px-2 sm:w-52">
+                <span className="shrink-0 text-[13px] text-[var(--texto-2)]">Até</span>
+                <select
+                  value={raioKm}
+                  onChange={(e) => setRaioKm(Number(e.target.value))}
+                  className="w-full border-0 bg-transparent py-2.5 text-[15px] outline-none"
+                >
+                  {[5, 10, 15, 25, 40].map((r) => (
+                    <option key={r} value={r}>
+                      {r} km da cachoeira
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
 
           <button type="submit" disabled={carregando} className="btn-primario btn-g">
             {carregando ? "Buscando…" : "Encontrar leads"}
           </button>
         </div>
+
+        {modo === "cachoeira" && (
+          <p className="mt-2 text-center text-[12.5px] leading-relaxed text-[var(--texto-3)]">
+            Busca chalés, casas de temporada e pousadas num raio das cachoeiras
+            mapeadas do estado inteiro. Demora mais que a busca por cidade — em
+            Minas são 900 cachoeiras cruzadas de uma vez.
+          </p>
+        )}
 
         <div className="mt-3 flex items-center justify-center">
           <button
@@ -179,15 +302,22 @@ export default function Buscar() {
 
         {filtrosAbertos && (
           <div className="surgir cartao mt-3 grid gap-4 p-4 sm:grid-cols-3">
-            <div>
-              <label className="mb-1.5 block text-[13px] text-[var(--texto-2)]">Bairro</label>
-              <input
-                value={bairro}
-                onChange={(e) => setBairro(e.target.value)}
-                placeholder="Opcional"
-                className="campo"
-              />
-            </div>
+            {/**
+             * Bairro só existe na busca por cidade. No modo cachoeira o
+             * escopo é o estado inteiro e o filtro não faria nada — campo que
+             * aceita texto e é ignorado é pior que campo ausente.
+             */}
+            {modo === "cidade" && (
+              <div>
+                <label className="mb-1.5 block text-[13px] text-[var(--texto-2)]">Bairro</label>
+                <input
+                  value={bairro}
+                  onChange={(e) => setBairro(e.target.value)}
+                  placeholder="Opcional"
+                  className="campo"
+                />
+              </div>
+            )}
             <div>
               <label className="mb-1.5 block text-[13px] text-[var(--texto-2)]">
                 Quantidade
@@ -267,6 +397,7 @@ export default function Buscar() {
                 [
                   ["melhores", `Melhores oportunidades (${contagem.melhores})`],
                   ["sem-site", `Sem site (${contagem.semSite})`],
+                  ["so-social", `Só Instagram/Facebook (${contagem.soSocial})`],
                   ["site-ruim", `Site ruim (${contagem.ruim})`],
                   ["todos", `Todos (${contagem.todos})`],
                 ] as [Filtro, string][]
@@ -308,7 +439,7 @@ export default function Buscar() {
             setResultados(
               (r) =>
                 r?.map((l) =>
-                  l.id === proposta.id ? { ...l, etapa: "proposta", noCrm: true } : l,
+                  l.id === proposta.id ? { ...l, etapa: "mensagem-enviada", noCrm: true } : l,
                 ) ?? null,
             );
           }}

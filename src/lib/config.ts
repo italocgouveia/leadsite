@@ -20,6 +20,25 @@ export const CONFIG_PADRAO = {
   pixelFacebook: null,
   googleAnalytics: null,
   googleAds: null,
+
+  /**
+   * Automação de WhatsApp — nasce DESLIGADA e sem provedor, de propósito.
+   * Um padrão "ligado" aqui significaria mensagem saindo para empresa real
+   * assim que alguém aprovasse a primeira, sem ninguém ter decidido isso.
+   */
+  automacaoAtiva: false,
+  respostaAutomaticaAtiva: false,
+  provedorUrl: null,
+  provedorToken: null,
+  intervaloSegundos: 90,
+  limiteDiario: 30,
+  janelaRecontatoDias: 30,
+
+  horarioEnvioAtivo: false,
+  horarioInicio: "08:00",
+  horarioFim: "20:00",
+  variacaoAleatoriaAtiva: false,
+
   atualizadoEm: new Date(),
 };
 

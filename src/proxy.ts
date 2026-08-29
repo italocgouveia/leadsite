@@ -23,7 +23,14 @@ import { getToken } from "next-auth/jwt";
  * de automação não faz login com Google. A própria rota valida o token; se ele
  * não estiver configurado, ela recusa tudo.
  */
-const PUBLICO = ["/s/", "/entrar", "/api/auth/", "/api/externo/"];
+const PUBLICO = [
+  "/s/",
+  "/entrar",
+  "/api/auth/",
+  "/api/externo/",
+  // Webhook do provedor de WhatsApp: valida o proprio WEBHOOK_SECRET.
+  "/api/automacao/status",
+];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

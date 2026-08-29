@@ -581,3 +581,32 @@ tr:hover > td > .btn-proposta {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ----------------------------------------------------- fundo de feixes */
+
+/**
+ * O pulso lento sobre os feixes — no original era um `motion.div` da
+ * biblioteca `motion`, animando opacidade de 0.05 a 0.15 em 10s. Em CSS sai
+ * de graça: o navegador anima em compositor, sem passar pela thread de JS.
+ */
+@keyframes beams-pulso {
+  0%,
+  100% {
+    opacity: 0.05;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+.beams-pulso {
+  animation: beams-pulso 10s ease-in-out infinite;
+}
+
+/* Quem pede menos movimento não recebe nem o canvas (ver fundo.tsx) nem isto. */
+@media (prefers-reduced-motion: reduce) {
+  .beams-pulso {
+    animation: none;
+    opacity: 0.1;
+  }
+}

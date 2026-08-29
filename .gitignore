@@ -46,8 +46,22 @@ next-env.d.ts
 
 # rascunhos locais que nao fazem parte do projeto
 id.txt
+_teste_*.json
+_teste_*.ts
+
+# scripts de supervisor local (Task Scheduler/servico.bat/.vbs) — caminhos e
+# nvm4w hardcoded desta maquina, sem serventia no deploy da Vercel. O
+# equivalente da bridge (whatsapp-node) tambem nao entra em nenhum git.
+atualizar.bat
+desinstalar-servico.bat
+iniciar-painel.bat
+instalar-servico.bat
+servico.bat
+servico.vbs
 
 # O exemplo NAO tem segredo e precisa ir junto: e o mapa das variaveis.
 # Fica no fim de proposito — como havia dois `.env*` no arquivo, a excecao
 # posta no meio era anulada pelo padrao que vinha depois.
 !.env.example
+painel.log
+*.log

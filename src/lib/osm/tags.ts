@@ -145,6 +145,36 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
   { termos: ["pousada"], filtros: [{ chave: "tourism", valor: "guest_house" }] },
   { termos: ["hotel"], filtros: [{ chave: "tourism", valor: "hotel" }] },
   { termos: ["agência de viagens", "viagens", "turismo"], filtros: [{ chave: "shop", valor: "travel_agency" }] },
+  /**
+   * Chalé e casa de temporada.
+   *
+   * O OSM não tem tag própria para "casa de temporada" — o mercado brasileiro
+   * de Airbnb/temporada é mapeado, quando é, sob as tags de hospedagem que
+   * existem: `chalet` (a mais específica), `apartment` (unidade avulsa
+   * alugada por diária, o equivalente mais próximo de "casa de temporada") e
+   * `guest_house` (pousada pequena, categoria vizinha que o dono às vezes
+   * usa por engano). Buscar as três é o que evita perder chalé cadastrado
+   * como apartamento por quem preencheu o mapa.
+   */
+  {
+    termos: ["chalé", "chale", "chalés", "chales"],
+    filtros: [
+      { chave: "tourism", valor: "chalet" },
+      { chave: "tourism", valor: "apartment" },
+    ],
+  },
+  {
+    termos: ["casa de temporada", "temporada", "aluguel de temporada", "airbnb"],
+    filtros: [
+      { chave: "tourism", valor: "apartment" },
+      { chave: "tourism", valor: "chalet" },
+      { chave: "tourism", valor: "guest_house" },
+    ],
+  },
+  {
+    termos: ["camping", "glamping", "acampamento"],
+    filtros: [{ chave: "tourism", valor: "camp_site" }],
+  },
 ];
 
 function normalizar(texto: string): string {

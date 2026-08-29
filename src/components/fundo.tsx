@@ -1,15 +1,14 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { ShaderBackground } from "@/components/ui/pulsing-border";
+import { DitherBackground } from "@/components/ui/dither-background";
 
 /**
  * Fundo animado do sistema inteiro.
  *
- * Fica `fixed` atrás de tudo, sem capturar clique. O shader pinta opaco, então
- * a opacidade + o véu radial por cima é o que mantém o miolo escuro o
- * suficiente para o texto continuar legível — sem isso, o brilho da borda
- * compete com o conteúdo nas laterais.
+ * Fica `fixed` atrás de tudo, sem capturar clique. O véu radial por cima
+ * mantém o miolo escuro o bastante para o texto continuar legível — os feixes
+ * são claros e, sem ele, competem com listas de 200 linhas no centro da tela.
  */
 
 const consultaMovimento = "(prefers-reduced-motion: reduce)";
@@ -39,9 +38,16 @@ export default function Fundo() {
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
       {!reduzir && (
-        <div className="absolute inset-0 opacity-[0.55]">
-          <ShaderBackground className="h-full w-full" />
-        </div>
+        <DitherBackground
+          waveColor={[0.23137254901960785, 0.5098039215686274, 0.9647058823529412]}
+          enableMouseInteraction
+          mouseRadius={0.4}
+          colorNum={4}
+          pixelSize={2}
+          waveAmplitude={0.25}
+          waveFrequency={5.5}
+          waveSpeed={0.04}
+        />
       )}
       {/* Véu: escurece o centro onde mora o conteúdo, deixa o brilho nas bordas. */}
       <div

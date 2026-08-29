@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, gte, inArray, type SQL } from "drizzle-orm";
-import { db, leads, type Etapa } from "@/lib/db";
+import { db, leads, ETAPAS, type Etapa } from "@/lib/db";
 import { avaliar, ehOportunidade } from "@/lib/oportunidade";
 import { categoriaSingular } from "@/lib/categoria-nome";
 import { SEM_SITE } from "@/lib/places/audit";
@@ -18,14 +18,8 @@ import { SEM_SITE } from "@/lib/places/audit";
 
 export const dynamic = "force-dynamic";
 
-const ETAPAS_VALIDAS: Etapa[] = [
-  "novo",
-  "contatado",
-  "respondeu",
-  "proposta",
-  "cliente",
-  "perdido",
-];
+// Vem de ETAPAS para não desatualizar quando o funil mudar de novo.
+const ETAPAS_VALIDAS: Etapa[] = ETAPAS.map((e) => e.valor);
 
 function autorizado(request: Request): boolean {
   const esperado = process.env.API_TOKEN;

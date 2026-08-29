@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Lead } from "@/lib/db/schema";
 import { montarProposta, linkWhatsappComMensagem } from "@/lib/proposta";
+import { resolverSaudacao } from "@/lib/saudacao";
 
 /**
  * Modal de proposta. A mensagem já vem pronta ao abrir — nada de esperar
@@ -20,9 +21,18 @@ export default function ModalProposta({
   aoEnviar?: () => void;
 }) {
   const base = montarProposta(lead, Boolean(urlPrevia));
-  const [mensagem, setMensagem] = useState(
+  /**
+   * Resolve a saudação AQUI, não na fila.
+   *
+   * Este caminho é manual e imediato: você lê, clica e a mensagem vai agora.
+   * Sem esta linha, o link do WhatsApp abriria com "{{saudacao}}, tudo bem?"
+   * literal na frente do cliente — o marcador só faz sentido enquanto o texto
+   * espera na fila, e aqui não existe espera.
+   */
+  const pronta = resolverSaudacao(
     urlPrevia ? `${base.mensagem}\n\n${urlPrevia}` : base.mensagem,
   );
+  const [mensagem, setMensagem] = useState(pronta);
   const [copiado, setCopiado] = useState(false);
   const [melhorando, setMelhorando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -36,20 +46,46 @@ export default function ModalProposta({
 
   const link = linkWhatsappComMensagem(lead, mensagem);
 
+  /**
+   * Marca que a abordagem SAIU — etapa "mensagem-enviada", a quarta do funil.
+   *
+   * Era "proposta", a oitava. Um primeiro contato no WhatsApp não é uma
+   * proposta comercial, e pular quatro etapas fazia o funil mostrar 107
+   * negócios em fase de fechamento que nunca tinham recebido uma mensagem.
+   */
   async function marcarEnviada() {
     await fetch("/api/leads/update", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: [lead.id], etapa: "proposta", noCrm: true, visto: true }),
+      body: JSON.stringify({
+        ids: [lead.id],
+        etapa: "mensagem-enviada",
+        noCrm: true,
+        visto: true,
+      }),
     });
     aoEnviar?.();
   }
 
-  function copiar() {
+  /**
+   * Copiar NÃO é enviar.
+   *
+   * Antes, copiar o texto para a área de transferência avançava o funil. Ler
+   * a mensagem antes de decidir — que é o motivo de existir o botão — marcava
+   * o lead como já abordado e o tirava de qualquer disparo futuro. Foi assim
+   * que 107 leads sumiram da fila sem ninguém ter falado com eles.
+   *
+   * Agora copiar só registra que você olhou.
+   */
+  async function copiar() {
     navigator.clipboard.writeText(mensagem);
     setCopiado(true);
     setTimeout(() => setCopiado(false), 1600);
-    void marcarEnviada();
+    await fetch("/api/leads/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [lead.id], visto: true }),
+    });
   }
 
   function abrirWhatsapp() {

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import type { Lead, Etapa } from "@/lib/db/schema";
+import { ETAPAS_FUNIL, type Lead, type Etapa } from "@/lib/db/schema";
 import { categoriaSingular } from "@/lib/categoria-nome";
+import ExcluirLead from "@/components/excluir-lead";
 
 const COR_TEMP: Record<string, string> = {
   quente: "bg-[var(--vermelho-fraco)] text-[var(--vermelho)]",
@@ -10,15 +11,14 @@ const COR_TEMP: Record<string, string> = {
   frio: "bg-[var(--azul-fraco)] text-[var(--azul)]",
 };
 
-/** Barra de cor no topo da coluna — dá leitura do funil de relance. */
-const COR_ETAPA: Record<Etapa, string> = {
-  novo: "bg-[#0060c0]",
-  contatado: "bg-[#6b4ec7]",
-  respondeu: "bg-[#c2410c]",
-  proposta: "bg-[#8a6100]",
-  cliente: "bg-[#128c4a]",
-  perdido: "bg-[var(--linha-forte)]",
-};
+/**
+ * A cor da coluna vem de ETAPAS_FUNIL, não de um mapa paralelo aqui.
+ * Antes eram duas listas para manter em sincronia, e acrescentar etapa
+ * quebrava o tipo em vez de só faltar cor.
+ */
+function corDaEtapa(etapa: Etapa): string {
+  return ETAPAS_FUNIL.find((e) => e.valor === etapa)?.cor ?? "var(--linha-forte)";
+}
 
 export function CartaoFunil({
   lead,
@@ -26,12 +26,14 @@ export function CartaoFunil({
   arrastando,
   aoIniciarArraste,
   aoTerminarArraste,
+  aoExcluir,
 }: {
   lead: Lead;
   aoAbrir: () => void;
   arrastando: boolean;
   aoIniciarArraste: () => void;
   aoTerminarArraste: () => void;
+  aoExcluir?: () => void;
 }) {
   return (
     <article
@@ -94,12 +96,19 @@ export function CartaoFunil({
           </a>
         )}
 
-        <Link
-          href={`/lead/${lead.id}`}
-          className="ml-auto text-[11px] text-[var(--azul)] hover:opacity-70"
-        >
-          Ver ›
-        </Link>
+        <span className="ml-auto flex items-center gap-1.5">
+          <Link
+            href={`/lead/${lead.id}`}
+            className="text-[11px] text-[var(--azul)] hover:opacity-70"
+          >
+            Ver ›
+          </Link>
+          {aoExcluir && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <ExcluirLead id={lead.id} nome={lead.nome} aoExcluir={aoExcluir} />
+            </span>
+          )}
+        </span>
       </div>
     </article>
   );
@@ -157,7 +166,10 @@ export function Coluna({
       }`}
     >
       <div className="mb-3 flex items-center gap-2 px-1">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${COR_ETAPA[etapa]}`} />
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ background: corDaEtapa(etapa) }}
+        />
         <h2 className="text-[13px] font-medium">{rotulo}</h2>
         <span className="ml-auto rounded-full bg-[var(--superficie-2)] px-2 py-0.5 text-[11px] tabular-nums text-[var(--texto-2)]">
           {leads.length}

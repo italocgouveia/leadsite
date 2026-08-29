@@ -1,3 +1,5 @@
+import { MARCA_SAUDACAO, resolverSaudacao } from "@/lib/saudacao";
+const MANHA = new Date("2026-08-25T09:00:00-03:00");
 import { montarProposta } from "../proposta";
 import type { Lead } from "@/lib/db/schema";
 
@@ -109,8 +111,38 @@ for (const [rotulo, l] of CASOS) {
     console.log(`FALHA ${rotulo}: placeholder na mensagem`);
   }
 
+  /**
+   * A abertura precisa TER o marcador de saudação…
+   *
+   * Isto guarda a decisão, não o texto: se alguém voltar a chumbar "Boa!" ou
+   * "Bom dia" direto na mensagem, ela passa a sair com a saudação do momento
+   * da MONTAGEM — e a fila leva dias para escoar, então o lead receberia
+   * "Boa noite" às nove da manhã.
+   */
+  if (!mensagem.startsWith(MARCA_SAUDACAO)) {
+    falhas++;
+    console.log(`FALHA ${rotulo}: abertura sem marcador de saudação`);
+  }
+
+  /**
+   * …e precisa SUMIR depois de resolvida.
+   *
+   * A checagem de placeholder acima procura `[`, `]`, `undefined` e `null` —
+   * não pega chave dupla. Sem esta linha, uma mensagem saindo com
+   * "{{saudacao}}, tudo bem?" literal para um lead real passaria no teste.
+   */
+  const resolvida = resolverSaudacao(mensagem, MANHA);
+  if (/\{\{|\}\}/.test(resolvida)) {
+    falhas++;
+    console.log(`FALHA ${rotulo}: marcador sobrou depois de resolver`);
+  }
+  if (!resolvida.startsWith("Bom dia")) {
+    falhas++;
+    console.log(`FALHA ${rotulo}: às 9h não abriu com "Bom dia"`);
+  }
+
   console.log(`\n─── ${rotulo}`);
-  console.log(mensagem);
+  console.log(resolvida);
 }
 
 console.log(

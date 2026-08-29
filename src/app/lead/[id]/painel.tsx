@@ -1,16 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ETAPAS, type Lead, type Etapa, type ModeloSite } from "@/lib/db/schema";
+import { ETAPAS, type Lead, type Etapa, type ModeloSite, type Conversa } from "@/lib/db/schema";
 import { categoriaSingular } from "@/lib/categoria-nome";
 import { avaliar } from "@/lib/oportunidade";
 import ModalProposta from "@/components/modal-proposta";
 import QuemDecide from "@/components/quem-decide";
 import ClienteOculto from "@/components/cliente-oculto";
+import ExcluirLead from "@/components/excluir-lead";
+import Abas from "@/components/abas";
+import ThreadConversa from "@/components/thread-conversa";
 
 type SiteResumo = { id: string; slug: string; publicado: boolean } | null;
+
+type Evento = { id: string; tipo: string; descricao: string; criadoEm: string };
+type MensagemCampanha = {
+  id: string;
+  texto: string;
+  status: string;
+  origem: string;
+  enviadaEm: string | null;
+  criadoEm: string;
+  campanhaNome: string | null;
+};
+
+type Aba = "geral" | "conversas" | "atividades" | "campanhas";
 
 /**
  * Página do lead: responde "por que vale a pena?" e deixa a proposta a um
@@ -25,6 +41,69 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
   const [gerando, setGerando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [detalhesAbertos, setDetalhesAbertos] = useState(false);
+
+  const [aba, setAba] = useState<Aba>("geral");
+  const [thread, setThread] = useState<Conversa[] | null>(null);
+  const [textoResposta, setTextoResposta] = useState("");
+  const [enviandoResposta, setEnviandoResposta] = useState(false);
+  const [eventos, setEventos] = useState<Evento[] | null>(null);
+  const [mensagensCampanha, setMensagensCampanha] = useState<MensagemCampanha[] | null>(null);
+  const [atendimentoHumano, setAtendimentoHumano] = useState(lead.atendimentoHumano);
+
+  useEffect(() => {
+    if (aba === "conversas" && thread === null) {
+      fetch(`/api/conversas/${lead.id}`)
+        .then((r) => r.json())
+        .then((d: { mensagens: Conversa[] }) => setThread(d.mensagens))
+        .catch(() => setThread([]));
+      fetch(`/api/conversas/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao: "marcar-lida" }),
+      }).catch(() => {});
+    }
+    if ((aba === "atividades" || aba === "campanhas") && eventos === null) {
+      fetch(`/api/leads/${lead.id}/timeline`)
+        .then((r) => r.json())
+        .then((d: { eventos: Evento[]; mensagensCampanha: MensagemCampanha[] }) => {
+          setEventos(d.eventos);
+          setMensagensCampanha(d.mensagensCampanha);
+        })
+        .catch(() => {
+          setEventos([]);
+          setMensagensCampanha([]);
+        });
+    }
+  }, [aba, thread, eventos, lead.id]);
+
+  async function enviarResposta() {
+    if (!textoResposta.trim()) return;
+    setEnviandoResposta(true);
+    try {
+      const r = await fetch(`/api/conversas/${lead.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto: textoResposta }),
+      });
+      if (r.ok) {
+        setTextoResposta("");
+        const d = await fetch(`/api/conversas/${lead.id}`).then((r2) => r2.json());
+        setThread(d.mensagens);
+      }
+    } finally {
+      setEnviandoResposta(false);
+    }
+  }
+
+  async function alternarAtendimentoHumano() {
+    const novo = !atendimentoHumano;
+    setAtendimentoHumano(novo);
+    await fetch(`/api/conversas/${lead.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acao: novo ? "assumir" : "devolver" }),
+    });
+  }
 
   const [extra, setExtra] = useState({
     precos: lead.precos ?? "",
@@ -104,6 +183,108 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
         </p>
       </header>
 
+      <Abas<Aba>
+        ativa={aba}
+        aoTrocar={setAba}
+        abas={[
+          { valor: "geral", rotulo: "Visão geral" },
+          { valor: "conversas", rotulo: "Conversas" },
+          { valor: "atividades", rotulo: "Atividades" },
+          { valor: "campanhas", rotulo: "Campanhas" },
+        ]}
+      />
+
+      {aba === "conversas" && (
+        <section className="cartao surgir mb-6 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[var(--linha)] px-5 py-3">
+            <h2 className="text-[15px] font-semibold">Conversa</h2>
+            <button onClick={alternarAtendimentoHumano} className="btn-secundario">
+              {atendimentoHumano ? "Devolver para automação" : "Assumir conversa"}
+            </button>
+          </div>
+          {thread === null ? (
+            <p className="p-5 text-[13px] text-[var(--texto-3)]">Carregando…</p>
+          ) : (
+            <div className="max-h-[420px] overflow-y-auto">
+              <ThreadConversa mensagens={thread} />
+            </div>
+          )}
+          <div className="border-t border-[var(--linha)] p-3">
+            <div className="flex gap-2">
+              <textarea
+                value={textoResposta}
+                onChange={(e) => setTextoResposta(e.target.value)}
+                placeholder="Escreva uma mensagem…"
+                rows={1}
+                className="campo resize-none"
+              />
+              <button
+                onClick={enviarResposta}
+                disabled={enviandoResposta || !textoResposta.trim()}
+                className="btn-primario"
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {aba === "atividades" && (
+        <section className="cartao surgir mb-6 p-5">
+          <h2 className="mb-3 text-[15px] font-semibold">Atividades</h2>
+          {eventos === null ? (
+            <p className="text-[13px] text-[var(--texto-3)]">Carregando…</p>
+          ) : eventos.length === 0 ? (
+            <p className="text-[13px] text-[var(--texto-3)]">Nada registrado ainda.</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {eventos.map((e) => (
+                <li key={e.id} className="text-[13px]">
+                  <span className="text-[var(--texto-3)]">
+                    {new Date(e.criadoEm).toLocaleString("pt-BR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  {" — "}
+                  <span className="text-[var(--texto)]">{e.descricao}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {aba === "campanhas" && (
+        <section className="cartao surgir mb-6 p-5">
+          <h2 className="mb-3 text-[15px] font-semibold">Campanhas</h2>
+          {mensagensCampanha === null ? (
+            <p className="text-[13px] text-[var(--texto-3)]">Carregando…</p>
+          ) : mensagensCampanha.length === 0 ? (
+            <p className="text-[13px] text-[var(--texto-3)]">Este lead nunca entrou numa campanha.</p>
+          ) : (
+            <ul className="space-y-3">
+              {mensagensCampanha.map((m) => (
+                <li key={m.id} className="border-b border-[var(--linha)] pb-3 last:border-0">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[13px] font-medium text-[var(--texto)]">
+                      {m.campanhaNome ?? "Campanha"}
+                    </span>
+                    <span className="etiqueta etiqueta-neutra">{m.status}</span>
+                  </div>
+                  <p className="text-[13px] text-[var(--texto-2)]">{m.texto}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {aba === "geral" && (
+        <>
       {/* --- ação principal, sempre à vista --- */}
       <section className="cartao surgir mb-6 p-5">
         <div className="mb-4 flex items-center gap-2">
@@ -265,6 +446,21 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
           </div>
         )}
       </section>
+
+      {/**
+       * Excluir fica no fim, sozinho e sem cor. É a única ação desta tela que
+       * não tem volta — perto dos botões de venda, viraria clique por engano.
+       */}
+      <div className="mt-8 flex justify-end">
+        <ExcluirLead
+          id={lead.id}
+          nome={lead.nome}
+          estilo="texto"
+          aoExcluir={() => router.push("/meus-leads")}
+        />
+      </div>
+        </>
+      )}
 
       {propostaAberta && (
         <ModalProposta

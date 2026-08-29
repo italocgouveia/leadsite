@@ -1,0 +1,249 @@
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { db, campanhas, mensagens, leads, eventos, type Lead } from "@/lib/db";
+import { podeContatar, lerConfig } from "@/lib/fila";
+import { estadoIntegracao } from "@/lib/integracao";
+import { montarProposta } from "@/lib/proposta";
+import { montarPropostaSistema, avaliarSistema } from "@/lib/sistemas";
+import { avaliar } from "@/lib/oportunidade";
+import { pontuar } from "@/lib/pontuacao";
+
+/**
+ * Campanhas: montar, iniciar, pausar, acompanhar.
+ *
+ * A campanha é o container que faz "Iniciar campanha" significar algo. Ela
+ * responde a pergunta que decide o próximo lote: *daqueles 40 contatos de
+ * oficina, quantos responderam?* Sem isso a fila é um balde único.
+ *
+ * DECISÃO IMPORTANTE: montar a campanha **não** envia nada. Ela nasce em
+ * `rascunho` com as mensagens em `rascunho`. Você revisa, aprova e só então
+ * inicia. Um botão que pesquisa, escreve e dispara no mesmo clique é como se
+ * manda 40 mensagens erradas antes de ler a primeira.
+ */
+
+export type Progresso = {
+  total: number;
+  rascunho: number;
+  aprovadas: number;
+  enviadas: number;
+  entregues: number;
+  respondidas: number;
+  erros: number;
+  canceladas: number;
+  /** Quanto já saiu, sobre o total. */
+  percentual: number;
+  taxaResposta: number;
+};
+
+export async function registrar(
+  tipo: string,
+  descricao: string,
+  extra: { campanhaId?: string; leadId?: string; dados?: Record<string, unknown> } = {},
+) {
+  await db.insert(eventos).values({ tipo, descricao, ...extra });
+}
+
+/**
+ * Cria a campanha e monta um rascunho de mensagem para cada lead elegível.
+ *
+ * Devolve os PULADOS com motivo. Em lote, silêncio sobre o que não entrou é
+ * como você acha que montou 40 contatos e montou 12.
+ */
+export async function montarCampanha(params: {
+  nome: string;
+  leadIds: string[];
+  produto?: "site" | "chatbot" | "sistema";
+  filtro?: Record<string, unknown>;
+}) {
+  const cfg = await lerConfig();
+
+  const [campanha] = await db
+    .insert(campanhas)
+    .values({
+      nome: params.nome,
+      status: "rascunho",
+      produto: params.produto ?? null,
+      filtro: params.filtro ?? null,
+    })
+    .returning();
+
+  const alvos = await db.select().from(leads).where(inArray(leads.id, params.leadIds));
+  const pulados: { nome: string; motivo: string }[] = [];
+  let criadas = 0;
+
+  for (const lead of alvos) {
+    const check = await podeContatar(lead, cfg);
+    if (!check.pode) {
+      pulados.push({ nome: lead.nome, motivo: check.motivo });
+      continue;
+    }
+
+    const texto = textoPara(lead, params.produto);
+    if (!texto) {
+      pulados.push({ nome: lead.nome, motivo: "Sem mensagem possível para este ramo." });
+      continue;
+    }
+
+    await db.insert(mensagens).values({
+      leadId: lead.id,
+      campanhaId: campanha.id,
+      texto,
+      produto: params.produto ?? avaliar(lead).produto,
+      origem: "modelo",
+      status: "rascunho",
+      rodada: 0,
+      // Mais quente sai primeiro, aqui também. Ver a coluna no schema.
+      prioridade: pontuar(lead).total,
+    });
+    criadas++;
+  }
+
+  await registrar(
+    "campanha.criada",
+    `"${campanha.nome}": ${criadas} mensagens, ${pulados.length} puladas`,
+    { campanhaId: campanha.id, dados: { criadas, pulados: pulados.length } },
+  );
+
+  return { campanha, criadas, pulados };
+}
+
+/** Qual motor escreve a mensagem, conforme o produto escolhido. */
+export function textoPara(
+  lead: Lead,
+  produto?: "site" | "chatbot" | "sistema",
+): string | null {
+  if (produto === "sistema") return montarPropostaSistema(lead);
+  if (produto === "site" || produto === "chatbot") return montarProposta(lead).mensagem;
+
+  // Sem produto definido: sistema quando o ramo encaixa, senão o motor padrão.
+  return avaliarSistema(lead).serve
+    ? (montarPropostaSistema(lead) ?? montarProposta(lead).mensagem)
+    : montarProposta(lead).mensagem;
+}
+
+export async function progresso(campanhaId: string): Promise<Progresso> {
+  const linhas = await db
+    .select({ status: mensagens.status })
+    .from(mensagens)
+    .where(eq(mensagens.campanhaId, campanhaId));
+
+  const conta = (s: string) => linhas.filter((l) => l.status === s).length;
+  const total = linhas.length;
+  const enviadas = conta("enviada") + conta("entregue") + conta("respondida");
+  const respondidas = conta("respondida");
+
+  return {
+    total,
+    rascunho: conta("rascunho"),
+    aprovadas: conta("aprovada") + conta("na-fila"),
+    enviadas,
+    entregues: conta("entregue") + respondidas,
+    respondidas,
+    erros: conta("erro"),
+    canceladas: conta("cancelada"),
+    percentual: total ? Math.round((enviadas / total) * 100) : 0,
+    taxaResposta: enviadas ? Math.round((respondidas / enviadas) * 100) : 0,
+  };
+}
+
+/**
+ * Inicia: aprova o que ainda é rascunho e marca a campanha como rodando.
+ *
+ * Aprovar aqui é intencional — você revisou a lista na tela antes de clicar.
+ * O que a função NÃO faz é enviar: quem envia é a fila, um por vez, com as
+ * travas de intervalo e teto diário revalidadas a cada mensagem.
+ */
+export async function iniciar(campanhaId: string) {
+  const [c] = await db.select().from(campanhas).where(eq(campanhas.id, campanhaId)).limit(1);
+  if (!c) return { ok: false as const, erro: "Campanha não encontrada." };
+
+  /**
+   * Recusa iniciar com a integração quebrada. Aprovar 40 mensagens que vão
+   * todas dar erro não é "começar a campanha" — é gastar a fila e sujar o
+   * histórico com falha que já era previsível aqui.
+   */
+  const integracao = await estadoIntegracao();
+  if (!integracao.pronta) {
+    const falta = integracao.pendencias.filter((p) => !p.feito).map((p) => p.item);
+    return {
+      ok: false as const,
+      erro: integracao.erro ?? `WhatsApp não configurado. Falta: ${falta.join(", ")}.`,
+      pendencias: integracao.pendencias,
+    };
+  }
+  if (c.status === "concluida" || c.status === "cancelada") {
+    return { ok: false as const, erro: `Campanha já ${c.status}.` };
+  }
+
+  const agora = new Date();
+  const aprovadas = await db
+    .update(mensagens)
+    .set({ status: "aprovada", aprovadaEm: agora, erro: null, atualizadoEm: agora })
+    .where(and(eq(mensagens.campanhaId, campanhaId), eq(mensagens.status, "rascunho")))
+    .returning({ id: mensagens.id });
+
+  await db
+    .update(campanhas)
+    .set({ status: "rodando", iniciadaEm: c.iniciadaEm ?? agora, atualizadoEm: agora })
+    .where(eq(campanhas.id, campanhaId));
+
+  await registrar("campanha.iniciada", `"${c.nome}": ${aprovadas.length} aprovadas`, {
+    campanhaId,
+  });
+
+  return { ok: true as const, aprovadas: aprovadas.length };
+}
+
+/**
+ * Pausa: nada é perdido, as mensagens ficam aprovadas esperando.
+ * `parar` cancela o que ainda não saiu — o que já foi, já foi.
+ */
+export async function pausar(campanhaId: string) {
+  const agora = new Date();
+  await db
+    .update(campanhas)
+    .set({ status: "pausada", atualizadoEm: agora })
+    .where(eq(campanhas.id, campanhaId));
+  await registrar("campanha.pausada", "Campanha pausada", { campanhaId });
+  return { ok: true as const };
+}
+
+export async function parar(campanhaId: string) {
+  const agora = new Date();
+
+  const canceladas = await db
+    .update(mensagens)
+    .set({ status: "cancelada", erro: "Campanha encerrada", atualizadoEm: agora })
+    .where(
+      and(
+        eq(mensagens.campanhaId, campanhaId),
+        inArray(mensagens.status, ["rascunho", "aprovada", "na-fila"]),
+      ),
+    )
+    .returning({ id: mensagens.id });
+
+  await db
+    .update(campanhas)
+    .set({ status: "concluida", concluidaEm: agora, atualizadoEm: agora })
+    .where(eq(campanhas.id, campanhaId));
+
+  await registrar(
+    "campanha.encerrada",
+    `${canceladas.length} contato(s) pendente(s) cancelado(s)`,
+    { campanhaId },
+  );
+
+  return { ok: true as const, canceladas: canceladas.length };
+}
+
+/** Campanhas com progresso, para a tela. */
+export async function listarComProgresso() {
+  const lista = await db.select().from(campanhas).orderBy(sql`${campanhas.criadoEm} desc`);
+  return Promise.all(
+    lista.map(async (c) => ({ ...c, progresso: await progresso(c.id) })),
+  );
+}
+
+/** Ordena leads pela pontuação — melhores primeiro. */
+export function ordenarPorPontuacao(lista: Lead[]): Lead[] {
+  return [...lista].sort((a, b) => pontuar(b).total - pontuar(a).total);
+}

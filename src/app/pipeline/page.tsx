@@ -159,6 +159,9 @@ export default function Pipeline() {
                         setColunaAlvo(null);
                       }}
                       aoAbrir={() => setAberto(lead)}
+                      aoExcluir={() =>
+                        setLeads((atual) => atual.filter((x) => x.id !== lead.id))
+                      }
                     />
                   ))
                 )}
@@ -174,7 +177,7 @@ export default function Pipeline() {
           aoFechar={() => setAberto(null)}
           aoEnviar={() => {
             setLeads((l) =>
-              l.map((x) => (x.id === aberto.id ? { ...x, etapa: "proposta" } : x)),
+              l.map((x) => (x.id === aberto.id ? { ...x, etapa: "mensagem-enviada" } : x)),
             );
             setAberto(null);
           }}

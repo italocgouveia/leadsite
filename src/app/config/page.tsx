@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import IntegracaoWhatsapp from "@/components/integracao-whatsapp";
 import type { Configuracao } from "@/lib/db/schema";
 
 type Form = {
@@ -10,6 +11,10 @@ type Form = {
   pixelFacebook: string;
   googleAnalytics: string;
   googleAds: string;
+
+  intervaloSegundos: string;
+  limiteDiario: string;
+  janelaRecontatoDias: string;
 };
 
 const VAZIO: Form = {
@@ -21,6 +26,10 @@ const VAZIO: Form = {
   pixelFacebook: "",
   googleAnalytics: "",
   googleAds: "",
+
+  intervaloSegundos: "90",
+  limiteDiario: "30",
+  janelaRecontatoDias: "30",
 };
 
 export default function ConfigPage() {
@@ -40,6 +49,10 @@ export default function ConfigPage() {
           pixelFacebook: config.pixelFacebook ?? "",
           googleAnalytics: config.googleAnalytics ?? "",
           googleAds: config.googleAds ?? "",
+
+          intervaloSegundos: String(config.intervaloSegundos ?? 90),
+          limiteDiario: String(config.limiteDiario ?? 30),
+          janelaRecontatoDias: String(config.janelaRecontatoDias ?? 30),
         });
       })
       .catch(() => {});
@@ -140,6 +153,14 @@ export default function ConfigPage() {
           {salvando ? "Salvando…" : salvo ? "Salvo!" : "Salvar"}
         </button>
       </form>
+
+      {/**
+       * Fora do <form> acima de propósito: a integração salva sozinha, campo a
+       * campo, e testar conexão não pode disparar o submit dos sites.
+       */}
+      <div className="mt-6">
+        <IntegracaoWhatsapp />
+      </div>
     </main>
   );
 }

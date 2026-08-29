@@ -131,6 +131,9 @@ const MAPA: Record<string, Nomes> = {
   // hospedagem
   hotel: { singular: "hotel", plural: "hotéis" },
   guest_house: { singular: "pousada", plural: "pousadas" },
+  chalet: { singular: "chalé", plural: "chalés" },
+  apartment: { singular: "casa de temporada", plural: "casas de temporada" },
+  camp_site: { singular: "camping", plural: "campings" },
   events_venue: { singular: "casa de eventos", plural: "casas de eventos" },
 };
 
@@ -164,4 +167,55 @@ export function categoriaPlural(bruto?: string | null): string {
   if (!c) return "negócios";
   if (MAPA[c]) return MAPA[c].plural;
   return pareceOsm(c) ? "negócios" : c;
+}
+
+/**
+ * "aqui em Capitólio" / "aqui na região".
+ *
+ * A crase muda com a palavra: `em + a região` é "na região", não "em a
+ * região". A versão anterior interpolava `lead.cidade ?? "a região"` direto
+ * depois de "aqui em", e todo lead sem cidade recebia "procurando chalés
+ * aqui em a região" — erro de português na primeira frase da abordagem.
+ *
+ * Isso era raro enquanto a busca era só por cidade (quem pesquisa sabe a
+ * cidade). Virou comum com a busca por cachoeira, que varre um estado e
+ * traz muita hospedagem sem `addr:city` no mapa.
+ */
+export function ondeFica(cidade?: string | null): string {
+  return cidade?.trim() ? `aqui em ${cidade.trim()}` : "aqui na região";
+}
+
+/**
+ * Estado sempre como SIGLA de duas letras.
+ *
+ * Duas rotas gravam lead e cada uma recebia o estado num formato: a busca por
+ * cidade manda `uf` do seletor ("MG"), e a busca por cachoeira recebe do
+ * Nominatim ora "Minas Gerais", ora "MG". Sem convergir, a mesma cidade vira
+ * "Pirenópolis/Goiás" e "Pirenópolis/GO" — dois lugares diferentes para o
+ * filtro, escondendo metade dos leads de quem filtrar por um dos dois.
+ *
+ * A sigla venceu por ser o que a base já usava e o que a tela exibe
+ * ("Uberlândia/MG"). A normalização mora no ponto de GRAVAÇÃO, não em cada
+ * chamador, porque chamador novo esquece.
+ */
+const SIGLA_POR_NOME: Record<string, string> = {
+  acre: "AC", alagoas: "AL", amazonas: "AM", amapa: "AP", bahia: "BA",
+  ceara: "CE", "distrito federal": "DF", "espirito santo": "ES", goias: "GO",
+  maranhao: "MA", "minas gerais": "MG", "mato grosso do sul": "MS",
+  "mato grosso": "MT", para: "PA", paraiba: "PB", pernambuco: "PE",
+  piaui: "PI", parana: "PR", "rio de janeiro": "RJ",
+  "rio grande do norte": "RN", rondonia: "RO", roraima: "RR",
+  "rio grande do sul": "RS", "santa catarina": "SC", sergipe: "SE",
+  "sao paulo": "SP", tocantins: "TO",
+};
+
+export function siglaDoEstado(bruto?: string | null): string | null {
+  const t = (bruto ?? "").trim();
+  if (!t) return null;
+  if (/^[A-Za-z]{2}$/.test(t)) return t.toUpperCase();
+  const chave = t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+  return SIGLA_POR_NOME[chave] ?? t;
 }

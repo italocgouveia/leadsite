@@ -246,6 +246,24 @@ const NICHOS: Record<string, Nicho> = {
     falta: "uma página com os quartos e a reserva direta com vocês",
     dor: "evitar pagar comissão de plataforma em toda diária",
   },
+  /**
+   * Chalé e casa de temporada dependem quase inteiro de Airbnb/Booking hoje —
+   * plataformas que cobram de 15% a 20% por diária. A página própria não
+   * troca a plataforma (a maioria continua listando lá), ela dá um segundo
+   * canal sem comissão para quem já conhece o lugar ou veio por indicação.
+   */
+  chalet: {
+    pagina: "página de reservas",
+    genero: "f",
+    falta: "uma página com as fotos, as datas livres e a reserva direta",
+    dor: "evitar pagar de 15% a 20% de comissão por diária no Airbnb ou Booking",
+  },
+  apartment: {
+    pagina: "página de reservas",
+    genero: "f",
+    falta: "uma página com as fotos e a reserva direta, sem taxa de plataforma",
+    dor: "evitar pagar comissão de plataforma em cada reserva de temporada",
+  },
 
   // --- comércio ---
   clothes: {
@@ -332,6 +350,9 @@ const APELIDOS: Record<string, string> = {
   idiomas: "language_school",
   hotel: "hotel",
   pousada: "guest_house",
+  chale: "chalet",
+  chales: "chalet",
+  temporada: "apartment",
   roupas: "clothes",
   floricultura: "florist",
   moveis: "furniture",

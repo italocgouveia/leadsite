@@ -8,6 +8,7 @@ import { avaliar, ehOportunidade } from "@/lib/oportunidade";
 import ModalProposta from "@/components/modal-proposta";
 import BuscaRapida from "@/components/busca-rapida";
 import BotaoExportar from "@/components/botao-exportar";
+import ExcluirLead from "@/components/excluir-lead";
 
 /**
  * A lista de trabalho do dia, de UM produto só.
@@ -77,6 +78,9 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
 
   /** Último descarte, para o "Desfazer". Guarda o lead inteiro, não só o id. */
   const [descartado, setDescartado] = useState<Lead | null>(null);
+  const [naFila, setNaFila] = useState<string | null>(null);
+  /** Seleção em massa: prospecção em volume é trabalho de lote, não de clique. */
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const relogioDesfazer = useRef<number | null>(null);
 
   const carregar = useCallback(async () => {
@@ -145,6 +149,42 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [lead.id], etapa: "novo", visto: false }),
     });
+  }
+
+  function alternar(id: string) {
+    setMarcados((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(id)) novo.delete(id);
+      else novo.add(id);
+      return novo;
+    });
+  }
+
+  /**
+   * Cria rascunhos na automação. NÃO envia nada — os textos entram como
+   * rascunho para você revisar em /automacao antes de qualquer disparo.
+   *
+   * A API devolve os PULADOS com motivo (já contatado, sem WhatsApp, marcado
+   * como não contatar). Mostrar isso importa: em lote, o silêncio sobre o que
+   * não entrou é como você acha que mandou 40 e mandou 12.
+   */
+  async function paraAutomacao(ids: string[]) {
+    if (ids.length === 0) return;
+    const r = await fetch("/api/automacao/mensagens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadIds: ids }),
+    }).then((x) => x.json());
+
+    const pulados: { nome: string; motivo: string }[] = r.pulados ?? [];
+    setNaFila(
+      `${r.criadas} rascunho(s) criado(s).` +
+        (pulados.length
+          ? ` ${pulados.length} pulado(s): ${pulados.slice(0, 3).map((p) => `${p.nome} (${p.motivo})`).join("; ")}${pulados.length > 3 ? "…" : ""}`
+          : ""),
+    );
+    setMarcados(new Set());
+    setTimeout(() => setNaFila(null), 9000);
   }
 
   const termo = semAcento(texto.trim());
@@ -251,6 +291,42 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
         </div>
       )}
 
+      {/**
+       * Barra de lote. Só aparece com algo marcado — em repouso ela seria mais
+       * um elemento competindo com a lista.
+       */}
+      {marcados.size > 0 && (
+        <div className="cartao surgir mb-4 flex flex-wrap items-center gap-2 p-3">
+          <span className="text-[14px] font-medium">
+            {marcados.size} selecionado{marcados.size > 1 ? "s" : ""}
+          </span>
+          <button
+            onClick={() => paraAutomacao([...marcados])}
+            className="btn-primario"
+          >
+            Mandar para automação
+          </button>
+          <button onClick={() => setMarcados(new Set())} className="btn-secundario ml-auto">
+            Limpar
+          </button>
+        </div>
+      )}
+
+      {!carregando && visiveis.length > 0 && (
+        <button
+          onClick={() =>
+            setMarcados(
+              marcados.size === visiveis.filter((l) => l.whatsapp).length
+                ? new Set()
+                : new Set(visiveis.filter((l) => l.whatsapp).map((l) => l.id)),
+            )
+          }
+          className="mb-3 text-[13px] text-[var(--azul)] hover:underline"
+        >
+          {marcados.size > 0 ? "Desmarcar todos" : `Selecionar todos com WhatsApp (${visiveis.filter((l) => l.whatsapp).length})`}
+        </button>
+      )}
+
       {carregando ? (
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -274,9 +350,19 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
                  */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                   <div className="flex min-w-0 flex-1 gap-3">
-                    <span className="mt-0.5 w-5 shrink-0 text-[14px] tabular-nums text-[var(--texto-3)]">
-                      {i + 1}
-                    </span>
+                    {lead.whatsapp ? (
+                      <input
+                        type="checkbox"
+                        checked={marcados.has(lead.id)}
+                        onChange={() => alternar(lead.id)}
+                        aria-label={`Selecionar ${lead.nome}`}
+                        className="mt-1 h-4 w-4 shrink-0 accent-[var(--azul)]"
+                      />
+                    ) : (
+                      <span className="mt-0.5 w-4 shrink-0 text-[14px] tabular-nums text-[var(--texto-3)]">
+                        {i + 1}
+                      </span>
+                    )}
 
                     <div className="min-w-0 flex-1">
                       <Link
@@ -311,6 +397,15 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
                       Enviar proposta
                     </button>
                     {lead.whatsapp && (
+                      <button
+                        onClick={() => paraAutomacao([lead.id])}
+                        className="btn-secundario"
+                        title="Cria rascunho na automação para você revisar"
+                      >
+                        Automação
+                      </button>
+                    )}
+                    {lead.whatsapp && (
                       <a
                         href={lead.whatsapp}
                         target="_blank"
@@ -325,6 +420,13 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
                      * usa quando a linha NÃO serve, então não pode disputar
                      * espaço com a que faz dinheiro.
                      */}
+                    {/* Descartar tira da fila; excluir apaga de vez. Os dois
+                        ficam juntos, mas só o X é de uso rotineiro. */}
+                    <ExcluirLead
+                      id={lead.id}
+                      nome={lead.nome}
+                      aoExcluir={() => setLeads((l) => l.filter((x) => x.id !== lead.id))}
+                    />
                     <button
                       onClick={() => descartar(lead)}
                       title={`Descartar ${lead.nome} — sai da fila e vai para "Perdido"`}
@@ -373,6 +475,12 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
        * linha — e confirmar dezenas de vezes por dia é justamente o tipo de
        * atrito que faz a ferramenta ser abandonada. Erro barato > pergunta cara.
        */}
+      {naFila && (
+        <p className="surgir mb-5 rounded-[10px] bg-[var(--azul-fraco)] px-4 py-2.5 text-[14px] text-[var(--azul)]">
+          {naFila}
+        </p>
+      )}
+
       {descartado && (
         <div
           role="status"

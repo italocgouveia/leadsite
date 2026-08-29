@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       .set({
         testeOculto: { enviadoEm: new Date().toISOString(), resultado: null },
         // Mandar a pergunta JÁ é contato: o funil tem que refletir isso sozinho.
-        etapa: lead.etapa === "novo" ? "contatado" : lead.etapa,
+        etapa: lead.etapa === "novo" ? "mensagem-enviada" : lead.etapa,
         noCrm: true,
         atualizadoEm: new Date(),
       })

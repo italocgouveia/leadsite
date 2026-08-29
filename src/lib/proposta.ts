@@ -1,6 +1,7 @@
+import { aberturaSaudacao } from "@/lib/saudacao";
 import type { Lead } from "@/lib/db/schema";
 import { avaliar } from "@/lib/oportunidade";
-import { categoriaPlural } from "@/lib/categoria-nome";
+import { categoriaPlural, ondeFica } from "@/lib/categoria-nome";
 import { nichoDe, type Nicho } from "@/lib/nichos";
 
 /**
@@ -70,7 +71,7 @@ function elogio(lead: Lead, nome: string): string {
   if (lead.instagram) {
     return `Dei uma olhada no Instagram da ${nome} e o trabalho de vocês é muito bom`;
   }
-  return `Conheci a ${nome} procurando ${categoriaPlural(lead.categoria)} aqui em ${lead.cidade ?? "a região"}`;
+  return `Conheci a ${nome} procurando ${categoriaPlural(lead.categoria)} ${ondeFica(lead.cidade)}`;
 }
 
 /**
@@ -149,7 +150,8 @@ function mensagemChatbot(lead: Lead, nome: string, nicho: Nicho): string {
    * vocês…". Frase longa no fim resolve sem precisar de vírgula estranha.
    */
   return [
-    `Boa!`,
+    // Mesma abertura das outras duas abordagens. Ver lib/saudacao.ts.
+    aberturaSaudacao(lead),
     ``,
     `${elogio(lead, nome)}. ${movimento}.`,
     ``,
@@ -192,7 +194,7 @@ export function montarProposta(lead: Lead, temPrevia = false): Proposta {
       : [];
 
   const mensagem = [
-    `Boa!`,
+    aberturaSaudacao(lead),
     ``,
     `${elogio(lead, nome)}, ${falta(lead, nicho)}.`,
     ``,
