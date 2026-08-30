@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { StatusCampanha } from "@/lib/db/schema";
 import type { Facetas, Faixa } from "@/lib/facetas";
@@ -80,11 +80,6 @@ export default function Campanhas() {
   const [nome, setNome] = useState("");
   const [nomeEditado, setNomeEditado] = useState(false);
 
-  // ---------- disparo ----------
-  const [rodando, setRodando] = useState(false);
-  const [enviadas, setEnviadas] = useState(0);
-  const pararRef = useRef(false);
-
   const carregarFacetas = useCallback(async () => {
     const q = new URLSearchParams({ faixa });
     if (segmento) q.set("segmento", segmento);
@@ -151,7 +146,7 @@ export default function Campanhas() {
           (pulados.length
             ? ` ${pulados.length} pulado(s): ${pulados.slice(0, 2).map((p) => `${p.nome} (${p.motivo})`).join("; ")}${pulados.length > 2 ? "…" : ""}`
             : "") +
-          " Revise em Automação e depois inicie.",
+          " Revise em Disparos e depois inicie.",
       );
       setMarcados(new Set());
       setEtapa(1);
@@ -173,7 +168,7 @@ export default function Campanhas() {
       setAviso(
         r.erro ??
           (acao === "iniciar"
-            ? `${r.aprovadas} mensagem(ns) aprovada(s). Use "Disparar" para começar.`
+            ? `${r.aprovadas} mensagem(ns) aprovada(s). Vá em "Disparos" para iniciar o envio.`
             : acao === "pausar"
               ? "Campanha pausada."
               : `Encerrada. ${r.canceladas} pendente(s) cancelado(s).`),
@@ -182,49 +177,6 @@ export default function Campanhas() {
     } finally {
       setOcupado(false);
     }
-  }
-
-  function esperar(ms: number) {
-    return new Promise<void>((pronto) => {
-      const inicio = Date.now();
-      const t = setInterval(() => {
-        if (pararRef.current || Date.now() - inicio >= ms) {
-          clearInterval(t);
-          pronto();
-        }
-      }, 500);
-    });
-  }
-
-  async function disparar() {
-    setRodando(true);
-    pararRef.current = false;
-    setEnviadas(0);
-    while (!pararRef.current) {
-      const r = await fetch("/api/automacao/fila", { method: "POST" })
-        .then((x) => x.json())
-        .catch(() => null);
-      if (!r) {
-        setAviso("Falha de rede. Parei por segurança.");
-        break;
-      }
-      if (r.enviada) {
-        setEnviadas((n) => n + 1);
-        setAviso(`Enviada para ${r.lead}. Próxima em ${r.proximaEm}s.`);
-        await carregarCampanhas();
-        await esperar((r.proximaEm ?? 90) * 1000);
-        continue;
-      }
-      if (r.esperarSegundos > 0) {
-        setAviso(`Aguardando ${r.esperarSegundos}s.`);
-        await esperar((r.esperarSegundos + 1) * 1000);
-        continue;
-      }
-      setAviso(r.motivo ?? "Fila vazia.");
-      break;
-    }
-    setRodando(false);
-    await carregarCampanhas();
   }
 
   const aguardando = campanhas.reduce((s, c) => s + c.progresso.aprovadas, 0);
@@ -297,37 +249,13 @@ export default function Campanhas() {
       {/* ============================================ disparo */}
       {aguardando > 0 && (
         <div className="cartao surgir mb-7 flex flex-wrap items-center gap-3 p-4">
-          {rodando ? (
-            <>
-              <button
-                onClick={() => {
-                  pararRef.current = true;
-                  setAviso("Parando…");
-                }}
-                className="btn-perigo"
-              >
-                Parar disparo
-              </button>
-              <span className="text-[14px] tabular-nums">{enviadas} enviada(s) agora</span>
-            </>
-          ) : (
-            <>
-              <button onClick={disparar} disabled={ocupado} className="btn-primario btn-g">
-                🚀 Disparar ({aguardando})
-              </button>
-              <span className="text-[13px] text-[var(--texto-2)]">
-                mensagens aprovadas aguardando envio
-              </span>
-            </>
-          )}
+          <Link href="/disparos" className="btn-primario btn-g">
+            🚀 Ir para Automação ({aguardando})
+          </Link>
+          <span className="text-[13px] text-[var(--texto-2)]">
+            mensagens aprovadas aguardando o worker único iniciar o envio
+          </span>
         </div>
-      )}
-
-      {rodando && (
-        <p className="surgir mb-6 rounded-[10px] bg-[var(--ambar-fraco)] px-4 py-3 text-[13px] leading-relaxed text-[var(--ambar)]">
-          Disparo em andamento. <strong>Mantenha esta aba aberta</strong> — fechar
-          interrompe.
-        </p>
       )}
 
       {/* ============================================ etapas */}
@@ -835,7 +763,7 @@ export default function Campanhas() {
                       Retomar
                     </button>
                   )}
-                  <Link href="/automacao" className="btn-secundario">
+                  <Link href="/disparos" className="btn-secundario">
                     {c.status === "concluida" ? "Ver resultados" : "Abrir"}
                   </Link>
                   {!["concluida", "cancelada"].includes(c.status) && (

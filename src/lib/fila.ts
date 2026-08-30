@@ -150,7 +150,7 @@ export function horarioPermitidoAgora(cfg: Config, agora: Date = new Date()): St
   };
 }
 
-function inicioDoDia(): Date {
+export function inicioDoDia(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;

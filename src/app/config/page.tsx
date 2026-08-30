@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import IntegracaoWhatsapp from "@/components/integracao-whatsapp";
 import type { Configuracao } from "@/lib/db/schema";
 
@@ -161,6 +162,19 @@ export default function ConfigPage() {
       <div className="mt-6">
         <IntegracaoWhatsapp />
       </div>
+
+      <Link
+        href="/config/resposta-automatica"
+        className="cartao-apple mt-6 flex items-center justify-between p-6 hover:bg-[var(--superficie)]"
+      >
+        <div>
+          <h2 className="font-semibold tracking-tight text-[var(--texto)]">Resposta automática</h2>
+          <p className="mt-1 text-[13px] text-[var(--texto-2)]">
+            Texto que o sistema manda sozinho quando o lead responde, por categoria de intenção.
+          </p>
+        </div>
+        <span className="text-[var(--texto-3)]">→</span>
+      </Link>
     </main>
   );
 }

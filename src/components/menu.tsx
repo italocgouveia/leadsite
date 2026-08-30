@@ -21,7 +21,7 @@ const PRINCIPAIS = [
   { href: "/prospeccao", rotulo: "Prospecção", icone: "lista" },
   { href: "/", rotulo: "Buscar leads", icone: "busca" },
   { href: "/conversas", rotulo: "Conversas", icone: "balao" },
-  { href: "/disparar", rotulo: "Disparar", icone: "aviao" },
+  { href: "/disparos", rotulo: "Disparos", icone: "aviao" },
   { href: "/sites", rotulo: "Sites", icone: "monitor" },
 ] as const;
 
@@ -29,7 +29,6 @@ const SECUNDARIOS = [
   { href: "/painel", rotulo: "Painel", icone: "grafico" },
   { href: "/pipeline", rotulo: "Pipeline", icone: "colunas" },
   { href: "/campanhas", rotulo: "Campanhas", icone: "foguete" },
-  { href: "/automacao", rotulo: "Automação", icone: "raio" },
   { href: "/calibracao", rotulo: "Calibração", icone: "regua" },
   { href: "/config", rotulo: "Configurações", icone: "engrenagem" },
 ] as const;

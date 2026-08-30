@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db, mensagens, leads } from "@/lib/db";
 import {
   lerConfig,
@@ -8,6 +8,7 @@ import {
   ultimoEnvio,
   enviarProxima,
   calcularStatusWorker,
+  inicioDoDia,
 } from "@/lib/fila";
 import { lerConfigProvedor } from "@/lib/integracao";
 import { consultarBridge, type SaudeBridge } from "@/lib/bridge";
@@ -57,7 +58,13 @@ export async function GET() {
     .orderBy(desc(mensagens.prioridade), mensagens.criadoEm)
     .limit(1);
   const proximaLead = proxima
-    ? (await db.select({ nome: leads.nome }).from(leads).where(eq(leads.id, proxima.leadId)).limit(1))[0]
+    ? (
+        await db
+          .select({ nome: leads.nome, cidade: leads.cidade, score: leads.score, categoria: leads.categoria })
+          .from(leads)
+          .where(eq(leads.id, proxima.leadId))
+          .limit(1)
+      )[0]
     : null;
 
   const [ultimoErro] = await db
@@ -77,6 +84,40 @@ export async function GET() {
     .orderBy(desc(mensagens.atualizadoEm))
     .limit(1);
 
+  /**
+   * Resumo do dia — só o que aconteceu hoje, para não confundir com o
+   * histórico inteiro. `respondidasHoje`/`errosHoje` olham para quando a
+   * MUDANÇA aconteceu (`atualizadoEm`), não para quando a mensagem nasceu.
+   */
+  const hojeInicio = inicioDoDia();
+  const [{ n: respondidasHoje }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(mensagens)
+    .where(and(eq(mensagens.status, "respondida"), gte(mensagens.respondidaEm, hojeInicio)));
+  const [{ n: errosHoje }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(mensagens)
+    .where(and(eq(mensagens.status, "erro"), gte(mensagens.atualizadoEm, hojeInicio)));
+
+  const recentes = await db
+    .select({ leadId: mensagens.leadId, status: mensagens.status, quando: mensagens.atualizadoEm })
+    .from(mensagens)
+    .where(inArray(mensagens.status, ["enviada", "entregue", "respondida", "erro"]))
+    .orderBy(desc(mensagens.atualizadoEm))
+    .limit(5);
+  const nomesRecentes = recentes.length
+    ? await db
+        .select({ id: leads.id, nome: leads.nome })
+        .from(leads)
+        .where(inArray(leads.id, recentes.map((r) => r.leadId)))
+    : [];
+  const nomePorId = new Map(nomesRecentes.map((l) => [l.id, l.nome]));
+  const ultimosEnvios = recentes.map((r) => ({
+    lead: nomePorId.get(r.leadId) ?? "?",
+    status: r.status,
+    quando: r.quando,
+  }));
+
   const statusWorker = calcularStatusWorker({
     bridgeAlcancavel: bridge.alcancavel,
     filaWorkerAtivo: bridge.alcancavel ? bridge.filaWorkerAtivo : null,
@@ -92,6 +133,9 @@ export async function GET() {
     provedorConfigurado: cfgProv !== null,
     aguardando: aguardando.length,
     enviadasHoje: hoje,
+    respondidasHoje,
+    errosHoje,
+    ultimosEnvios,
     limiteDiario: cfg.limiteDiario,
     intervaloSegundos: cfg.intervaloSegundos,
     variacaoAleatoriaAtiva: cfg.variacaoAleatoriaAtiva,
@@ -100,7 +144,15 @@ export async function GET() {
     pode: bloqueio.pode,
     motivo: bloqueio.pode ? null : bloqueio.motivo,
     esperarSegundos: bloqueio.pode ? 0 : (bloqueio.esperarSegundos ?? 0),
-    proximaMensagem: proxima ? { lead: proximaLead?.nome ?? "?", trecho: proxima.texto.slice(0, 80) } : null,
+    proximaMensagem: proxima
+      ? {
+          lead: proximaLead?.nome ?? "?",
+          cidade: proximaLead?.cidade ?? null,
+          categoria: proximaLead?.categoria ?? null,
+          pontuacao: proximaLead?.score ?? null,
+          trecho: proxima.texto.slice(0, 80),
+        }
+      : null,
     ultimoErro: ultimoErro
       ? { lead: erroLead?.nome ?? "?", motivo: ultimoErro.erro, quando: ultimoErro.atualizadoEm }
       : null,

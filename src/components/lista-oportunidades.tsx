@@ -162,7 +162,7 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
 
   /**
    * Cria rascunhos na automação. NÃO envia nada — os textos entram como
-   * rascunho para você revisar em /automacao antes de qualquer disparo.
+   * rascunho para você revisar em /disparos antes de qualquer disparo.
    *
    * A API devolve os PULADOS com motivo (já contatado, sem WhatsApp, marcado
    * como não contatar). Mostrar isso importa: em lote, o silêncio sobre o que
