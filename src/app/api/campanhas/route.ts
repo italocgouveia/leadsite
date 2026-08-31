@@ -29,6 +29,8 @@ export async function GET(request: Request) {
 const Montar = z.object({
   nome: z.string().min(2).max(80),
   leadIds: z.array(z.string().uuid()).min(1).max(300),
+  /** Texto literal e único para todos os leads — ver `montarCampanha`. */
+  mensagem: z.string().min(10).max(4000).optional(),
   produto: z.enum(["site", "chatbot", "sistema"]).optional(),
   filtro: z.record(z.string(), z.unknown()).optional(),
 });

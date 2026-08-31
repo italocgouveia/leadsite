@@ -51,6 +51,18 @@ export async function registrar(
 export async function montarCampanha(params: {
   nome: string;
   leadIds: string[];
+  /**
+   * Texto ÚNICO e literal para todos os leads da campanha, escrito pela
+   * pessoa em /disparos. Quando presente, IGNORA `produto`/`textoPara` por
+   * completo — nenhum motor por lead entra na jogada, e o texto vai para o
+   * banco exatamente como foi digitado (sem saudação dinâmica, sem trocar
+   * palavra, sem escolher "site"/"chatbot"/"sistema" sozinho).
+   *
+   * Sem `mensagem`: continua o comportamento antigo, usado por /campanhas —
+   * `textoPara` monta o texto por lead conforme `produto` (ou decide
+   * sozinho, sem `produto`).
+   */
+  mensagem?: string;
   produto?: "site" | "chatbot" | "sistema";
   filtro?: Record<string, unknown>;
 }) {
@@ -77,7 +89,7 @@ export async function montarCampanha(params: {
       continue;
     }
 
-    const texto = textoPara(lead, params.produto);
+    const texto = params.mensagem ?? textoPara(lead, params.produto);
     if (!texto) {
       pulados.push({ nome: lead.nome, motivo: "Sem mensagem possível para este ramo." });
       continue;
@@ -87,7 +99,8 @@ export async function montarCampanha(params: {
       leadId: lead.id,
       campanhaId: campanha.id,
       texto,
-      produto: params.produto ?? avaliar(lead).produto,
+      // Mensagem literal não é "site"/"chatbot"/"sistema" — fica sem produto.
+      produto: params.produto ?? (params.mensagem ? null : avaliar(lead).produto),
       origem: "modelo",
       status: "rascunho",
       rodada: 0,

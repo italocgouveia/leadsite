@@ -123,12 +123,28 @@ async function elegiveis(
 }
 
 export type PreviaFiltrada = {
-  /** Quantos leads elegíveis (todas as travas da fila) esse filtro devolve. */
-  total: number;
-  /** Contagem por segmento, dentro do universo elegível — alimenta a grade de nichos. */
-  segmentos: { nome: string; quantidade: number }[];
-  /** A próxima mensagem real que sairia, já com a saudação resolvida. */
-  amostra: { nome: string; cidade: string | null; nota: number; texto: string } | null;
+  /**
+   * Todos os leads do nicho escolhido (ou da base inteira, sem filtro) — SEM
+   * nenhuma trava aplicada. Responde "quantos existem", não "quantos dá para
+   * mandar agora". Nunca é cortado por um limite de prévia.
+   */
+  totalNoNicho: number;
+  /**
+   * Dentro do nicho escolhido, quantos passam por TODAS as travas da fila
+   * agora (WhatsApp, funil, janela de recontato, resposta, mensagem já
+   * pendente). É o número que "Preparar fila" de fato usa — nunca um
+   * `.slice`/`LIMIT` de tela disfarçado de contagem.
+   */
+  disponivel: number;
+  /** Grade de nichos: total e disponível de cada um, para os botões. */
+  segmentos: { nome: string; total: number; disponivel: number }[];
+  /**
+   * Só uma AMOSTRA VISUAL dos próximos a entrar (nome/cidade/nota) — capada
+   * em 10 de propósito. NUNCA usar o tamanho desta lista como a contagem:
+   * `disponivel` é o número real, `proximos.length` é só o que cabe na
+   * prévia da tela.
+   */
+  proximos: { nome: string; cidade: string | null; nota: number }[];
   /**
    * Ids prontos para virar `leadIds` de `POST /api/campanhas`. Limitado a 300
    * — o mesmo teto que a rota de campanhas aceita — porque preparar mais que
@@ -139,43 +155,50 @@ export type PreviaFiltrada = {
 };
 
 /**
- * O que "preparar fila" veria AGORA, para um nicho e uma abordagem — sem
- * gravar nada. Usa a MESMA varredura de `elegiveis`, então o número mostrado
- * na tela é exatamente quem vai entrar quando o usuário clicar.
+ * O que "preparar fila" veria AGORA, para um nicho — sem gravar nada. Usa a
+ * MESMA varredura de `elegiveis`, então o número mostrado na tela é
+ * exatamente quem vai entrar quando o usuário clicar.
+ *
+ * Sem `produto`: a mensagem da campanha, a partir de agora, é sempre o texto
+ * que a pessoa escreve na tela (ver `montarCampanha` em campanha.ts), nunca
+ * um motor por lead — então nada aqui depende de qual "abordagem" o ramo
+ * aceitaria.
  */
 export async function previaFiltrada(
-  filtro: { segmento?: string; produto?: ProdutoDisparo } = {},
+  filtro: { segmento?: string } = {},
 ): Promise<PreviaFiltrada> {
   const cfg = await lerConfig();
-  const { aptos } = await elegiveis(cfg, { produto: filtro.produto });
+  const [base, { aptos }] = await Promise.all([db.select().from(leads), elegiveis(cfg)]);
 
-  const porSegmento = new Map<string, number>();
+  const totalPorSegmento = new Map<string, number>();
+  for (const l of base) {
+    const seg = categoriaSingular(l.categoria);
+    totalPorSegmento.set(seg, (totalPorSegmento.get(seg) ?? 0) + 1);
+  }
+  const disponivelPorSegmento = new Map<string, number>();
   for (const a of aptos) {
     const seg = categoriaSingular(a.lead.categoria);
-    porSegmento.set(seg, (porSegmento.get(seg) ?? 0) + 1);
+    disponivelPorSegmento.set(seg, (disponivelPorSegmento.get(seg) ?? 0) + 1);
   }
-  const segmentos = [...porSegmento.entries()]
-    .map(([nome, quantidade]) => ({ nome, quantidade }))
-    .sort((a, b) => b.quantidade - a.quantidade);
+  const segmentos = [...totalPorSegmento.entries()]
+    .map(([nome, total]) => ({ nome, total, disponivel: disponivelPorSegmento.get(nome) ?? 0 }))
+    .sort((a, b) => b.total - a.total);
 
-  const filtrados = filtro.segmento
+  const totalNoNicho = filtro.segmento ? (totalPorSegmento.get(filtro.segmento) ?? 0) : base.length;
+  const aptosDoNicho = filtro.segmento
     ? aptos.filter((a) => categoriaSingular(a.lead.categoria) === filtro.segmento)
     : aptos;
 
-  const primeiro = filtrados[0];
-
   return {
-    total: filtrados.length,
+    totalNoNicho,
+    disponivel: aptosDoNicho.length,
     segmentos,
-    amostra: primeiro
-      ? {
-          nome: primeiro.lead.nome,
-          cidade: primeiro.lead.cidade,
-          nota: pontuar(primeiro.lead).total,
-          texto: resolverSaudacao(primeiro.texto),
-        }
-      : null,
-    leadIds: filtrados.slice(0, 300).map((a) => a.lead.id),
+    proximos: aptosDoNicho.slice(0, 10).map((a) => ({
+      nome: a.lead.nome,
+      cidade: a.lead.cidade,
+      nota: pontuar(a.lead).total,
+    })),
+    leadIds: aptosDoNicho.slice(0, 300).map((a) => a.lead.id),
   };
 }
 

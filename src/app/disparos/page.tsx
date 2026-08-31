@@ -5,15 +5,22 @@ import Link from "next/link";
 import type { Lead, StatusMensagem } from "@/lib/db/schema";
 import { categoriaSingular, iconeCategoria } from "@/lib/categoria-nome";
 import type { PreviaFiltrada } from "@/lib/disparo";
-import { OPCOES_ABORDAGEM, type Abordagem } from "@/lib/abordagem";
 
 /**
  * Disparos automáticos — a ÚNICA tela para preparar, iniciar, pausar e
  * acompanhar disparos.
  *
- * Fluxo: escolher nicho → escolher abordagem → ver quantidade real → prévia
- * da mensagem → PREPARAR FILA → INICIAR DISPAROS → o worker da bridge
- * trabalha sozinho.
+ * Fluxo: escolher nicho (contagem real, sem limite escondido) → escrever UMA
+ * mensagem → confirmar → PREPARAR FILA → INICIAR DISPAROS → o worker da
+ * bridge trabalha sozinho.
+ *
+ * DECISÃO DELIBERADA: a mensagem é sempre o texto que a pessoa escreve aqui,
+ * literal, para TODOS os leads da campanha — nunca um motor por lead
+ * (`lib/proposta.ts`/`lib/sistemas.ts`, que ainda existem e continuam
+ * servindo /campanhas) e nunca IA (que só entra em `lib/gen/*`, geração de
+ * site — nada disso participa do texto de disparo). Ver `montarCampanha` em
+ * lib/campanha.ts: com `mensagem` preenchida, o `textoPara` por lead é
+ * ignorado por completo.
  *
  * /disparar e /automacao continuam existindo só como redirect para cá (ver
  * os arquivos deles) — link salvo ou aba antiga não pode virar 404. Esta
@@ -73,6 +80,8 @@ type LinhaRascunho = {
   lead: Lead;
 };
 
+type CampanhaPronta = { nicho: string; quantidade: number; mensagem: string };
+
 const ROTULO_STATUS: Partial<Record<StatusMensagem, string>> = {
   enviada: "Enviada",
   entregue: "Entregue",
@@ -91,10 +100,6 @@ function formatarHora(iso: string): string {
   return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function rotuloAbordagem(produto: string | null): string {
-  return OPCOES_ABORDAGEM.find((o) => o.valor === produto)?.rotulo ?? "Automático";
-}
-
 type EstadoCodigo = "rodando" | "pausada" | "sem-fila" | "bridge-erro" | "whatsapp-erro";
 
 const BANNER_POR_ESTADO: Record<EstadoCodigo, string> = {
@@ -104,6 +109,8 @@ const BANNER_POR_ESTADO: Record<EstadoCodigo, string> = {
   "bridge-erro": "bg-[var(--vermelho-fraco)] text-[var(--vermelho)]",
   "whatsapp-erro": "bg-[var(--vermelho-fraco)] text-[var(--vermelho)]",
 };
+
+const MENSAGEM_MIN = 10;
 
 export default function Disparos() {
   const [painel, setPainel] = useState<Painel | null>(null);
@@ -125,30 +132,41 @@ export default function Disparos() {
   const [salvandoConfig, setSalvandoConfig] = useState(false);
   const [mostrarConfig, setMostrarConfig] = useState(false);
 
-  // ---------- 1 e 2: nicho + abordagem ----------
+  // ---------- passo 1: nicho ----------
   const [segmento, setSegmento] = useState("");
-  const [abordagem, setAbordagem] = useState<Abordagem>("");
+  const [nichoEscolhido, setNichoEscolhido] = useState(false);
   const [preview, setPreview] = useState<PreviaFiltrada | null>(null);
+
+  // ---------- passo 2: uma única mensagem, literal ----------
+  const [mensagemRascunho, setMensagemRascunho] = useState("");
+  const [mensagemConfirmada, setMensagemConfirmada] = useState<string | null>(null);
+
   const [preparando, setPreparando] = useState(false);
-  const [filaResumo, setFilaResumo] = useState<{ nicho: string; abordagem: string } | null>(null);
-  const [mensagemExpandida, setMensagemExpandida] = useState(false);
+  const [campanhaPronta, setCampanhaPronta] = useState<CampanhaPronta | null>(null);
 
   function escolherSegmento(v: string) {
-    setSegmento((atual) => (atual === v ? "" : v));
-    setFilaResumo(null);
+    setSegmento(v);
+    setNichoEscolhido(true);
+    setCampanhaPronta(null);
   }
-  function escolherAbordagem(v: Abordagem) {
-    setAbordagem(v);
-    setFilaResumo(null);
+
+  function confirmarMensagem() {
+    const texto = mensagemRascunho.trim();
+    if (texto.length < MENSAGEM_MIN) return;
+    setMensagemConfirmada(texto);
+    setCampanhaPronta(null);
+  }
+
+  function editarMensagem() {
+    setMensagemConfirmada(null);
   }
 
   const carregarPreview = useCallback(async () => {
     const q = new URLSearchParams();
     if (segmento) q.set("segmento", segmento);
-    if (abordagem) q.set("produto", abordagem);
     const r = await fetch(`/api/disparo/preview?${q}`).then((x) => x.json());
     setPreview(r);
-  }, [segmento, abordagem]);
+  }, [segmento]);
 
   useEffect(() => {
     void (async () => {
@@ -329,29 +347,30 @@ export default function Disparos() {
   }
 
   const nichoLabel = segmento || "Todos os nichos";
-  const abordagemAtual = OPCOES_ABORDAGEM.find((o) => o.valor === abordagem) ?? OPCOES_ABORDAGEM[0];
-  const totalGeral = preview?.segmentos.reduce((s, x) => s + x.quantidade, 0) ?? 0;
+  const totalGeral = preview?.segmentos.reduce((s, x) => s + x.total, 0) ?? 0;
+  const disponivelGeral = preview?.segmentos.reduce((s, x) => s + x.disponivel, 0) ?? 0;
 
   /**
-   * Preparar fila usa as MESMAS funções de campanha que /campanhas já usa —
-   * `POST /api/campanhas` monta o rascunho (revalidando elegibilidade lead a
-   * lead) e `PATCH .../iniciar` aprova. Nenhuma das duas envia: só o worker
-   * da bridge, chamando `/api/automacao/fila`, manda mensagem de verdade.
+   * Preparar fila usa a MESMA função de campanha que /campanhas já usa —
+   * `POST /api/campanhas` monta o rascunho com o texto ÚNICO confirmado
+   * (revalidando elegibilidade lead a lead, mas nunca trocando o texto) e
+   * `PATCH .../iniciar` aprova. Nenhuma das duas envia: só o worker da
+   * bridge, chamando `/api/automacao/fila`, manda mensagem de verdade.
    */
   async function prepararFila() {
-    if (!preview || preview.total === 0) return;
+    if (!preview || preview.disponivel === 0 || !mensagemConfirmada) return;
     setPreparando(true);
     try {
       const data = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
-      const nome = `${nichoLabel} — ${abordagemAtual.rotulo} — ${data}`;
+      const nome = `${nichoLabel} — ${data}`;
       const r = await fetch("/api/campanhas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nome,
           leadIds: preview.leadIds,
-          produto: abordagem || undefined,
-          filtro: { segmento, abordagem },
+          mensagem: mensagemConfirmada,
+          filtro: { segmento },
         }),
       }).then((x) => x.json());
 
@@ -363,8 +382,12 @@ export default function Disparos() {
         });
       }
 
-      setFilaResumo({ nicho: nichoLabel, abordagem: abordagemAtual.rotulo });
+      setCampanhaPronta({ nicho: nichoLabel, quantidade: r.criadas ?? 0, mensagem: mensagemConfirmada });
       setAviso(`✓ Fila preparada — ${r.criadas ?? 0} empresa(s) pronta(s) para receber.`);
+      setSegmento("");
+      setNichoEscolhido(false);
+      setMensagemConfirmada(null);
+      setMensagemRascunho("");
       await Promise.all([carregarTudo(), carregarPreview()]);
     } finally {
       setPreparando(false);
@@ -397,9 +420,9 @@ export default function Disparos() {
     <main className="mx-auto max-w-3xl px-4 pb-24 pt-20 sm:px-5 lg:pt-10">
       <header className="surgir mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[24px] font-semibold sm:text-[28px]">🚀 Disparos automáticos</h1>
+          <h1 className="text-[24px] font-semibold sm:text-[28px]">🚀 Disparos</h1>
           <p className="mt-1.5 text-[14px] text-[var(--texto-2)]">
-            Escolha o público, escolha a abordagem e deixe o sistema trabalhar sozinho.
+            Escolha o nicho, escreva uma mensagem e deixe o sistema trabalhar sozinho.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -429,7 +452,7 @@ export default function Disparos() {
         </p>
       )}
 
-      {/* --- rodando: painel ao vivo (Seção 7) --- */}
+      {/* --- rodando: painel ao vivo --- */}
       {rodando ? (
         <section className="cartao surgir mb-6 p-5">
           <p className="text-[15px] font-semibold text-[var(--verde,var(--azul))]">
@@ -492,26 +515,28 @@ export default function Disparos() {
         </section>
       ) : (
         <>
-          {/* --- Seção 1: nicho --- */}
+          {/* --- Passo 1: nicho --- */}
           <section className="cartao surgir mb-6 p-5">
-            <p className="mb-1 text-[15px] font-semibold">1. Escolha o nicho</p>
+            <p className="mb-1 text-[15px] font-semibold">Passo 1 — Escolha o nicho</p>
             <p className="mb-4 text-[13px] text-[var(--texto-2)]">
-              Selecione o tipo de empresa que receberá os disparos.
+              A contagem é real, direto do banco — sem limite escondido.
             </p>
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <button
                 onClick={() => escolherSegmento("")}
                 className={`rounded-[12px] px-3 py-3 text-left transition ${
-                  !segmento
+                  nichoEscolhido && !segmento
                     ? "bg-[var(--azul)] text-white"
                     : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
                 }`}
               >
                 <span className="block text-[20px]">🏢</span>
-                <span className="mt-1 block text-[13px] font-medium">Todos os nichos</span>
-                <span className={`block text-[12px] ${!segmento ? "text-white/80" : "text-[var(--texto-3)]"}`}>
-                  {totalGeral} disponíveis
+                <span className="mt-1 block text-[13px] font-medium">Todos</span>
+                <span
+                  className={`block text-[12px] ${nichoEscolhido && !segmento ? "text-white/80" : "text-[var(--texto-3)]"}`}
+                >
+                  {disponivelGeral} de {totalGeral}
                 </span>
               </button>
 
@@ -519,157 +544,179 @@ export default function Disparos() {
                 <button
                   key={s.nome}
                   onClick={() => escolherSegmento(s.nome)}
-                  disabled={s.quantidade === 0}
                   className={`rounded-[12px] px-3 py-3 text-left capitalize transition ${
-                    segmento === s.nome
-                      ? "bg-[var(--azul)] text-white"
-                      : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
-                  } ${s.quantidade === 0 ? "opacity-50" : ""}`}
-                >
-                  <span className="block text-[20px]">{iconeCategoria(s.nome)}</span>
-                  <span className="mt-1 block text-[13px] font-medium">{s.nome}</span>
-                  <span
-                    className={`block text-[12px] ${segmento === s.nome ? "text-white/80" : "text-[var(--texto-3)]"}`}
-                  >
-                    {s.quantidade} disponíve{s.quantidade === 1 ? "l" : "is"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* --- Seção 2: abordagem --- */}
-          <section className="cartao surgir mb-6 p-5">
-            <p className="mb-1 text-[15px] font-semibold">2. Escolha a abordagem</p>
-            <p className="mb-4 text-[13px] text-[var(--texto-2)]">
-              Defina o serviço que será oferecido nessa campanha.
-            </p>
-
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {OPCOES_ABORDAGEM.map((o) => (
-                <button
-                  key={o.valor}
-                  onClick={() => escolherAbordagem(o.valor)}
-                  className={`rounded-[12px] px-3.5 py-3 text-left transition ${
-                    abordagem === o.valor
+                    nichoEscolhido && segmento === s.nome
                       ? "bg-[var(--azul)] text-white"
                       : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
                   }`}
                 >
-                  <span className="text-[14px] font-medium">
-                    {o.emoji} {o.rotulo}
-                  </span>
+                  <span className="block text-[20px]">{iconeCategoria(s.nome)}</span>
+                  <span className="mt-1 block text-[13px] font-medium">{s.nome}</span>
                   <span
-                    className={`block text-[12px] ${abordagem === o.valor ? "text-white/80" : "text-[var(--texto-3)]"}`}
+                    className={`block text-[12px] ${nichoEscolhido && segmento === s.nome ? "text-white/80" : "text-[var(--texto-3)]"}`}
                   >
-                    {o.descricao}
+                    {s.disponivel} de {s.total}
                   </span>
                 </button>
               ))}
             </div>
-          </section>
 
-          {/* --- Seção 3: resumo da campanha --- */}
-          <section className="cartao surgir mb-6 p-5">
-            <p className="mb-3 text-[15px] font-semibold">3. Sua campanha</p>
-            <dl className="space-y-2.5 text-[13.5px]">
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-[var(--texto-2)]">Público</dt>
-                <dd className="truncate text-right font-medium capitalize">{nichoLabel}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-[var(--texto-2)]">Abordagem</dt>
-                <dd className="text-right font-medium">
-                  {abordagemAtual.emoji} {abordagemAtual.rotulo}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-[var(--texto-2)]">Disponíveis</dt>
-                <dd className="text-right font-medium tabular-nums">{preview?.total ?? 0} empresas</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-[var(--texto-2)]">Hoje</dt>
-                <dd className="text-right font-medium tabular-nums">{config.limiteDiario} disparos</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-[var(--texto-2)]">Intervalo</dt>
-                <dd className="text-right font-medium tabular-nums">{config.intervaloSegundos} segundos</dd>
-              </div>
-            </dl>
-          </section>
-
-          {/* --- Seção 4: mensagem --- */}
-          <section className="cartao surgir mb-6 p-5">
-            <p className="mb-3 text-[15px] font-semibold">4. Mensagem</p>
-            {preview && preview.total > 0 && preview.amostra ? (
-              <>
-                <p className="mb-1.5 text-[12.5px] text-[var(--texto-3)]">
-                  Prévia real para{" "}
-                  <strong className="text-[var(--texto-2)]">{preview.amostra.nome}</strong>
-                  {preview.amostra.cidade ? ` · ${preview.amostra.cidade}` : ""}
-                </p>
-                <p className="whitespace-pre-line rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13.5px] leading-relaxed">
-                  {preview.amostra.texto.length > 260
-                    ? `${preview.amostra.texto.slice(0, 260)}…`
-                    : preview.amostra.texto}
-                </p>
-                <button
-                  onClick={() => setMensagemExpandida(true)}
-                  className="mt-2 text-[12.5px] text-[var(--azul)] hover:underline"
-                >
-                  Ver mensagem completa
-                </button>
-              </>
-            ) : (
-              <p className="text-[13.5px] text-[var(--texto-2)]">
-                Nenhuma empresa elegível para esse filtro agora. Tente outro nicho ou abordagem.
+            {nichoEscolhido && preview && (
+              <p className="mt-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13.5px]">
+                <strong className="capitalize">{nichoLabel}</strong> — {preview.totalNoNicho}{" "}
+                lead{preview.totalNoNicho === 1 ? "" : "s"} encontrado
+                {preview.totalNoNicho === 1 ? "" : "s"}, {preview.disponivel} disponíve
+                {preview.disponivel === 1 ? "l" : "is"} para disparo agora.
               </p>
             )}
           </section>
 
-          {/* --- Seção 5: preparar fila --- */}
-          <div className="surgir mb-6 text-center">
-            <button
-              onClick={prepararFila}
-              disabled={preparando || !preview || preview.total === 0}
-              className="btn-primario w-full max-w-sm !py-3.5 !text-[16px]"
-            >
-              {preparando ? "Preparando…" : "✓ PREPARAR FILA"}
-            </button>
-            {preview && preview.total === 0 && (
-              <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">
-                Ajuste o nicho ou a abordagem para encontrar empresas.
+          {/* --- Passo 2: a mensagem --- */}
+          {nichoEscolhido && (
+            <section className="cartao surgir mb-6 p-5">
+              <p className="mb-1 text-[15px] font-semibold">Passo 2 — Escreva a mensagem</p>
+              <p className="mb-4 text-[13px] text-[var(--texto-2)]">
+                Essa é a mensagem oficial da campanha. Vai para todos os leads deste nicho{" "}
+                <strong>exatamente como está escrita aqui</strong> — sem personalização automática.
               </p>
-            )}
-          </div>
 
-          {/* --- Seção 6: pronto para disparar --- */}
-          {filaPronta && (
-            <section className="cartao surgir mb-6 p-5 text-center">
-              <p className="text-[16px] font-semibold text-[var(--verde,var(--azul))]">
-                🟢 PRONTO PARA DISPARAR
-              </p>
-              <p className="mt-1 text-[13.5px] text-[var(--texto-2)]">
-                Existem {painel.aguardando} empresas na fila.
-              </p>
-              {painel.proximaMensagem && (
-                <p className="mt-2 text-[13px] text-[var(--texto-3)]">
-                  Próxima: <strong className="text-[var(--texto)]">{painel.proximaMensagem.lead}</strong>
+              {mensagemConfirmada ? (
+                <>
+                  <p className="whitespace-pre-line rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13.5px] leading-relaxed">
+                    {mensagemConfirmada}
+                  </p>
+                  <button
+                    onClick={editarMensagem}
+                    className="mt-2 text-[12.5px] text-[var(--azul)] hover:underline"
+                  >
+                    Editar mensagem
+                  </button>
+                </>
+              ) : (
+                <>
+                  <textarea
+                    value={mensagemRascunho}
+                    onChange={(e) => setMensagemRascunho(e.target.value)}
+                    placeholder="Olá! Tudo bem? Vi a empresa de vocês e gostei bastante do trabalho..."
+                    rows={5}
+                    className="campo w-full resize-y"
+                  />
+                  <div className="mt-2 flex items-center gap-3">
+                    <button
+                      onClick={confirmarMensagem}
+                      disabled={mensagemRascunho.trim().length < MENSAGEM_MIN}
+                      className="btn-primario"
+                    >
+                      Usar esta mensagem
+                    </button>
+                    {mensagemRascunho.trim().length > 0 &&
+                      mensagemRascunho.trim().length < MENSAGEM_MIN && (
+                        <span className="text-[12px] text-[var(--texto-3)]">
+                          Mínimo de {MENSAGEM_MIN} caracteres.
+                        </span>
+                      )}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
+          {/* --- resumo da campanha + preparar fila --- */}
+          {nichoEscolhido && mensagemConfirmada && preview && (
+            <section className="cartao surgir mb-6 p-5">
+              <p className="mb-3 text-[15px] font-semibold">Campanha</p>
+              <dl className="space-y-2.5 text-[13.5px]">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-[var(--texto-2)]">Nicho</dt>
+                  <dd className="truncate text-right font-medium capitalize">{nichoLabel}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-[var(--texto-2)]">Leads encontrados</dt>
+                  <dd className="text-right font-medium tabular-nums">{preview.totalNoNicho}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-[var(--texto-2)]">Disponíveis</dt>
+                  <dd className="text-right font-medium tabular-nums">{preview.disponivel}</dd>
+                </div>
+              </dl>
+
+              {preview.proximos.length > 0 && (
+                <>
+                  <p className="mb-1.5 mt-4 text-[12px] uppercase tracking-[0.08em] text-[var(--texto-3)]">
+                    Próximos leads (prévia)
+                  </p>
+                  <ul className="space-y-1 text-[13px] text-[var(--texto-2)]">
+                    {preview.proximos.map((p, i) => (
+                      <li key={i} className="truncate">
+                        {i + 1}. {p.nome}
+                        {p.cidade ? ` — ${p.cidade}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              <button
+                onClick={prepararFila}
+                disabled={preparando || preview.disponivel === 0}
+                className="btn-primario mt-5 w-full !py-3.5 !text-[16px]"
+              >
+                {preparando ? "Preparando…" : "✓ PREPARAR FILA"}
+              </button>
+              {preview.disponivel === 0 && (
+                <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">
+                  Nenhuma empresa disponível para esse nicho agora.
                 </p>
               )}
-              <button
-                onClick={pedirConfirmacaoIniciar}
-                disabled={ocupado || !bridgeOk || !whatsappOk}
-                className="btn-primario mt-4 w-full max-w-sm !py-3.5 !text-[16px]"
-              >
-                ▶ INICIAR DISPAROS
-              </button>
-              {(!bridgeOk || !whatsappOk) && (
-                <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">
-                  {!bridgeOk
-                    ? "A bridge precisa estar acessível para iniciar."
-                    : "O WhatsApp precisa estar conectado para iniciar."}
-                </p>
+            </section>
+          )}
+
+          {/* --- campanha pronta: iniciar --- */}
+          {campanhaPronta && (
+            <section className="cartao surgir mb-6 p-5">
+              <p className="text-[16px] font-semibold text-[var(--verde,var(--azul))]">
+                🟢 CAMPANHA PRONTA
+              </p>
+              <dl className="mt-3 space-y-2 text-[13.5px]">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-[var(--texto-2)]">Nicho</dt>
+                  <dd className="text-right font-medium capitalize">{campanhaPronta.nicho}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-[var(--texto-2)]">Quantidade</dt>
+                  <dd className="text-right font-medium tabular-nums">
+                    {campanhaPronta.quantidade} leads
+                  </dd>
+                </div>
+              </dl>
+              <p className="mb-1.5 mt-3 text-[12px] uppercase tracking-[0.08em] text-[var(--texto-3)]">
+                Mensagem
+              </p>
+              <p className="whitespace-pre-line rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13.5px] leading-relaxed">
+                {campanhaPronta.mensagem}
+              </p>
+              <p className="mt-3 rounded-[10px] bg-[var(--ambar-fraco)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--ambar)]">
+                ⚠️ Esta mensagem será enviada exatamente como está para todos os leads desta
+                campanha.
+              </p>
+
+              {filaPronta && (
+                <>
+                  <button
+                    onClick={pedirConfirmacaoIniciar}
+                    disabled={ocupado || !bridgeOk || !whatsappOk}
+                    className="btn-primario mt-4 w-full !py-3.5 !text-[16px]"
+                  >
+                    ▶ INICIAR DISPAROS
+                  </button>
+                  {(!bridgeOk || !whatsappOk) && (
+                    <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">
+                      {!bridgeOk
+                        ? "A bridge precisa estar acessível para iniciar."
+                        : "O WhatsApp precisa estar conectado para iniciar."}
+                    </p>
+                  )}
+                </>
               )}
             </section>
           )}
@@ -693,21 +740,9 @@ export default function Disparos() {
             </h2>
             <ul className="mt-4 space-y-1.5 text-[14px] text-[var(--texto-2)]">
               <li>
-                Público:{" "}
-                <strong className="text-[var(--texto)] capitalize">
-                  {filaResumo?.nicho ?? nichoLabel}
-                </strong>
-              </li>
-              <li>
-                Abordagem:{" "}
+                Fila hoje:{" "}
                 <strong className="text-[var(--texto)]">
-                  {filaResumo?.abordagem ?? abordagemAtual.rotulo}
-                </strong>
-              </li>
-              <li>
-                Empresas:{" "}
-                <strong className="text-[var(--texto)]">
-                  {Math.min(painel.aguardando, config.limiteDiario)} hoje
+                  {Math.min(painel.aguardando, config.limiteDiario)} empresas
                 </strong>
               </li>
               <li>
@@ -715,7 +750,11 @@ export default function Disparos() {
                 <strong className="text-[var(--texto)]">{config.intervaloSegundos} segundos</strong>
               </li>
             </ul>
-            <p className="mt-4 text-[13.5px] leading-relaxed text-[var(--texto-2)]">
+            <p className="mt-3 text-[13.5px] leading-relaxed text-[var(--texto-2)]">
+              A fila pode conter mensagens de mais de uma campanha preparada. Cada uma sai com o
+              texto exato com que foi criada.
+            </p>
+            <p className="mt-3 text-[13.5px] leading-relaxed text-[var(--texto-2)]">
               Depois de iniciar, o sistema continuará enviando automaticamente até atingir o limite
               ou não haver mais empresas elegíveis — mesmo se você fechar esta página.
             </p>
@@ -735,38 +774,13 @@ export default function Disparos() {
         </div>
       )}
 
-      {mensagemExpandida && preview?.amostra && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5"
-          onClick={() => setMensagemExpandida(false)}
-        >
-          <div
-            className="cartao w-full max-w-md p-6"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mensagem-completa-titulo"
-          >
-            <h2 id="mensagem-completa-titulo" className="text-[16px] font-semibold">
-              Mensagem para {preview.amostra.nome}
-            </h2>
-            <p className="mt-3 whitespace-pre-line text-[13.5px] leading-relaxed text-[var(--texto-2)]">
-              {preview.amostra.texto}
-            </p>
-            <button onClick={() => setMensagemExpandida(false)} className="btn-secundario mt-5">
-              Fechar
-            </button>
-          </div>
-        </div>
-      )}
-
       {aviso && (
         <p className="surgir mb-6 rounded-[10px] bg-[var(--azul-fraco)] px-4 py-2.5 text-[14px] text-[var(--azul)]">
           {aviso}
         </p>
       )}
 
-      {/* --- Seção 8: resumo do dia --- */}
+      {/* --- resumo do dia --- */}
       <section className="cartao surgir mb-4 p-5">
         <p className="mb-3 text-[14px] font-semibold">Resumo de hoje</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -791,7 +805,6 @@ export default function Disparos() {
             {painel.ultimosEnvios.map((u, i) => (
               <li key={i} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[13.5px]">
                 <span className="min-w-0 flex-1 truncate">{u.lead}</span>
-                <span className="shrink-0 text-[12px] text-[var(--texto-3)]">{rotuloAbordagem(u.produto)}</span>
                 <span className={`etiqueta shrink-0 ${COR_STATUS[u.status] ?? "etiqueta-neutra"}`}>
                   {ROTULO_STATUS[u.status] ?? u.status}
                 </span>
@@ -804,7 +817,7 @@ export default function Disparos() {
         </section>
       )}
 
-      {/* --- Seção 9: configurações, recolhida por padrão --- */}
+      {/* --- configurações, recolhida por padrão --- */}
       <section className="cartao surgir mb-4 p-5">
         <button
           onClick={() => setMostrarConfig((v) => !v)}
