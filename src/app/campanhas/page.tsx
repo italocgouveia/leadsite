@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { StatusCampanha } from "@/lib/db/schema";
 import type { Facetas, Faixa } from "@/lib/facetas";
 import { estimarDuracao, nomeSugerido, ROTULO_FAIXA } from "@/lib/facetas";
+import { OPCOES_ABORDAGEM, type Abordagem } from "@/lib/abordagem";
 
 /**
  * Campanhas.
@@ -73,6 +74,7 @@ export default function Campanhas() {
   const [faixa, setFaixa] = useState<Faixa>("todos");
   const [soZap, setSoZap] = useState(true);
   const [buscaCidade, setBuscaCidade] = useState("");
+  const [abordagem, setAbordagem] = useState<Abordagem>("");
 
   // ---------- montagem ----------
   const [etapa, setEtapa] = useState<Etapa>(1);
@@ -136,7 +138,8 @@ export default function Campanhas() {
         body: JSON.stringify({
           nome: nome.trim() || nomeSugerido(segmento || undefined, cidade || undefined),
           leadIds: selecionados.map((l) => l.id),
-          filtro: { segmento, cidade, faixa, soZap },
+          produto: abordagem || undefined,
+          filtro: { segmento, cidade, faixa, soZap, abordagem },
         }),
       }).then((x) => x.json());
 
@@ -317,6 +320,34 @@ export default function Campanhas() {
                   >
                     {iconeSegmento(s.valor)} {s.valor}
                     <span className="ml-1.5 opacity-70">{s.leads}</span>
+                  </button>
+                ))}
+              </div>
+
+              <p className="mb-2 text-[12px] uppercase tracking-[0.1em] text-[var(--texto-3)]">
+                Abordagem
+              </p>
+              <div className="mb-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {OPCOES_ABORDAGEM.map((o) => (
+                  <button
+                    key={o.valor}
+                    onClick={() => setAbordagem(o.valor)}
+                    className={`rounded-[10px] px-3.5 py-2.5 text-left transition ${
+                      abordagem === o.valor
+                        ? "bg-[var(--azul)] text-white"
+                        : "bg-[var(--superficie)] text-[var(--texto)] hover:bg-[var(--superficie-2)]"
+                    }`}
+                  >
+                    <span className="text-[13.5px] font-medium">
+                      {o.emoji} {o.rotulo}
+                    </span>
+                    <span
+                      className={`block text-[12px] ${
+                        abordagem === o.valor ? "text-white/80" : "text-[var(--texto-3)]"
+                      }`}
+                    >
+                      {o.descricao}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -628,6 +659,11 @@ export default function Campanhas() {
                 {soZap && <li>✓ Possuem WhatsApp</li>}
                 {segmento && <li>✓ Segmento: {segmento}</li>}
                 {cidade && <li>✓ Cidade: {cidade}</li>}
+                {abordagem && (
+                  <li>
+                    ✓ Abordagem: {OPCOES_ABORDAGEM.find((o) => o.valor === abordagem)?.rotulo}
+                  </li>
+                )}
                 <li>
                   ✓ Notas de {Math.min(...selecionados.map((l) => l.nota))} a{" "}
                   {Math.max(...selecionados.map((l) => l.nota))}
@@ -678,6 +714,10 @@ export default function Campanhas() {
                 <div>
                   <dt className="text-[var(--texto-3)]">Cidade</dt>
                   <dd>{cidade || "Todas"}</dd>
+                </div>
+                <div>
+                  <dt className="text-[var(--texto-3)]">Abordagem</dt>
+                  <dd>{OPCOES_ABORDAGEM.find((o) => o.valor === abordagem)?.rotulo}</dd>
                 </div>
                 <div>
                   <dt className="text-[var(--texto-3)]">Duração estimada</dt>

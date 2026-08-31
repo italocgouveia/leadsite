@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Lead, StatusMensagem } from "@/lib/db/schema";
 import { categoriaSingular } from "@/lib/categoria-nome";
+import type { Facetas } from "@/lib/facetas";
+import { OPCOES_ABORDAGEM, type Abordagem } from "@/lib/abordagem";
 
 /**
  * Disparos automáticos — página única.
@@ -105,6 +107,25 @@ export default function Disparos() {
   });
   const [salvandoConfig, setSalvandoConfig] = useState(false);
 
+  // ---------- quem entra na fila: segmento + abordagem ----------
+  const [segmento, setSegmento] = useState("");
+  const [abordagem, setAbordagem] = useState<Abordagem>("");
+  const [facetas, setFacetas] = useState<Facetas | null>(null);
+  const [preparando, setPreparando] = useState(false);
+
+  const carregarFiltro = useCallback(async () => {
+    const q = new URLSearchParams({ zap: "1" });
+    if (segmento) q.set("segmento", segmento);
+    const r = await fetch(`/api/campanhas/publico?${q}`).then((x) => x.json());
+    setFacetas(r);
+  }, [segmento]);
+
+  useEffect(() => {
+    void (async () => {
+      await carregarFiltro();
+    })();
+  }, [carregarFiltro]);
+
   /**
    * Um único `carregarTudo`, não dois `fetch` soltos no efeito: chamar duas
    * funções que fazem `setState` no mesmo efeito é o padrão "cascading" que o
@@ -127,6 +148,40 @@ export default function Disparos() {
   useEffect(() => {
     void carregarTudo();
   }, [carregarTudo]);
+
+  async function prepararFila() {
+    if (!facetas || facetas.resumo.compativeis === 0) return;
+    setPreparando(true);
+    try {
+      const data = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+      const nome = segmento ? `${segmento} — ${data}` : `Disparos — ${data}`;
+      const r = await fetch("/api/campanhas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome,
+          leadIds: facetas.compativeis.map((l) => l.id),
+          produto: abordagem || undefined,
+          filtro: { segmento, abordagem },
+        }),
+      }).then((x) => x.json());
+
+      if (r.campanha?.id) {
+        await fetch("/api/campanhas", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: r.campanha.id, acao: "iniciar" }),
+        });
+      }
+
+      setAviso(`${r.criadas ?? 0} mensagem(ns) preparada(s) e aprovada(s) para a fila.`);
+      setSegmento("");
+      setAbordagem("");
+      await Promise.all([carregarTudo(), carregarFiltro()]);
+    } finally {
+      setPreparando(false);
+    }
+  }
 
   // Só consulta status — nunca envia. O worker de verdade roda na bridge,
   // mesmo com esta aba fechada; isto é só o relógio que mantém a tela ao vivo.
@@ -348,6 +403,88 @@ export default function Disparos() {
         </section>
       ) : (
         <>
+          {/* --- quem entra na fila: segmento + abordagem --- */}
+          <section className="cartao surgir mb-6 p-5">
+            <p className="mb-1 text-[14px] font-semibold">Quem entra na fila</p>
+            <p className="mb-4 text-[12.5px] text-[var(--texto-2)]">
+              Escolha o segmento e a abordagem antes de iniciar. Deixe em branco para pegar todo
+              mundo disponível.
+            </p>
+
+            <p className="mb-2 text-[12px] uppercase tracking-[0.1em] text-[var(--texto-3)]">
+              Segmento
+            </p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => setSegmento("")}
+                className={`rounded-[10px] px-3 py-2 text-[13px] transition ${
+                  !segmento
+                    ? "bg-[var(--azul)] text-white"
+                    : "bg-[var(--superficie)] text-[var(--texto-2)] hover:text-[var(--texto)]"
+                }`}
+              >
+                Todos
+              </button>
+              {(facetas?.segmentos ?? []).map((s) => (
+                <button
+                  key={s.valor}
+                  onClick={() => setSegmento(segmento === s.valor ? "" : s.valor)}
+                  className={`rounded-[10px] px-3 py-2 text-[13px] capitalize transition ${
+                    segmento === s.valor
+                      ? "bg-[var(--azul)] text-white"
+                      : "bg-[var(--superficie)] text-[var(--texto-2)] hover:text-[var(--texto)]"
+                  }`}
+                  title={`${s.comWhatsapp} com WhatsApp`}
+                >
+                  {s.valor} <span className="ml-1.5 opacity-70">{s.comWhatsapp}</span>
+                </button>
+              ))}
+            </div>
+
+            <p className="mb-2 text-[12px] uppercase tracking-[0.1em] text-[var(--texto-3)]">
+              Abordagem
+            </p>
+            <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {OPCOES_ABORDAGEM.map((o) => (
+                <button
+                  key={o.valor}
+                  onClick={() => setAbordagem(o.valor)}
+                  className={`rounded-[10px] px-3.5 py-2.5 text-left transition ${
+                    abordagem === o.valor
+                      ? "bg-[var(--azul)] text-white"
+                      : "bg-[var(--superficie)] text-[var(--texto)] hover:bg-[var(--superficie-2)]"
+                  }`}
+                >
+                  <span className="text-[13.5px] font-medium">
+                    {o.emoji} {o.rotulo}
+                  </span>
+                  <span
+                    className={`block text-[12px] ${
+                      abordagem === o.valor ? "text-white/80" : "text-[var(--texto-3)]"
+                    }`}
+                  >
+                    {o.descricao}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={prepararFila}
+                disabled={preparando || !facetas || facetas.resumo.compativeis === 0}
+                className="btn-primario"
+              >
+                {preparando
+                  ? "Preparando…"
+                  : `Preparar fila (${facetas?.resumo.compativeis ?? 0})`}
+              </button>
+              <span className="text-[12.5px] text-[var(--texto-3)]">
+                {facetas?.resumo.compativeis ?? 0} leads com WhatsApp encontrados
+              </span>
+            </div>
+          </section>
+
           {/* --- próxima empresa --- */}
           {painel.proximaMensagem && (
             <section className="cartao surgir mb-6 p-5">
