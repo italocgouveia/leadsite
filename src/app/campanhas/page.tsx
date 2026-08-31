@@ -6,6 +6,7 @@ import type { StatusCampanha } from "@/lib/db/schema";
 import type { Facetas, Faixa } from "@/lib/facetas";
 import { estimarDuracao, nomeSugerido, ROTULO_FAIXA } from "@/lib/facetas";
 import { OPCOES_ABORDAGEM, type Abordagem } from "@/lib/abordagem";
+import { iconeCategoria } from "@/lib/categoria-nome";
 
 /**
  * Campanhas.
@@ -43,22 +44,6 @@ type Campanha = {
 };
 
 const SUGESTOES_QTD = [10, 20, 30, 50];
-
-/** Emoji por segmento — puramente visual, cai num padrão quando não conhece. */
-function iconeSegmento(s: string): string {
-  const t = s.toLowerCase();
-  if (/oficina|mec[âa]nic|auto|borracharia|pneu/.test(t)) return "🔧";
-  if (/lava|est[ée]tica automotiva/.test(t)) return "🚗";
-  if (/cl[íi]nic|m[ée]dic|consult[óo]rio|odonto|dentista|fisio|psicolog/.test(t)) return "🏥";
-  if (/sal[ãa]o|barbear|cabelo|beleza|manicure/.test(t)) return "💇";
-  if (/est[ée]tica/.test(t)) return "💆";
-  if (/pet|veterin/.test(t)) return "🐶";
-  if (/restaurante|lanchonete|pizza|caf[ée]|padaria|bar\b/.test(t)) return "🍽️";
-  if (/farm[áa]cia|drogaria/.test(t)) return "💊";
-  if (/im[óo]vel|imobili/.test(t)) return "🏠";
-  if (/academia|pilates|crossfit/.test(t)) return "🏋️";
-  return "🏢";
-}
 
 export default function Campanhas() {
   // ---------- dados ----------
@@ -318,7 +303,7 @@ export default function Campanhas() {
                     }`}
                     title={`${s.comWhatsapp} com WhatsApp`}
                   >
-                    {iconeSegmento(s.valor)} {s.valor}
+                    {iconeCategoria(s.valor)} {s.valor}
                     <span className="ml-1.5 opacity-70">{s.leads}</span>
                   </button>
                 ))}

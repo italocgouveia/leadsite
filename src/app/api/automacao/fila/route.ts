@@ -52,7 +52,7 @@ export async function GET() {
    * uma reserva; a fila de verdade decide na hora do envio.
    */
   const [proxima] = await db
-    .select({ leadId: mensagens.leadId, texto: mensagens.texto })
+    .select({ leadId: mensagens.leadId, texto: mensagens.texto, produto: mensagens.produto })
     .from(mensagens)
     .where(eq(mensagens.status, "aprovada"))
     .orderBy(desc(mensagens.prioridade), mensagens.criadoEm)
@@ -100,7 +100,12 @@ export async function GET() {
     .where(and(eq(mensagens.status, "erro"), gte(mensagens.atualizadoEm, hojeInicio)));
 
   const recentes = await db
-    .select({ leadId: mensagens.leadId, status: mensagens.status, quando: mensagens.atualizadoEm })
+    .select({
+      leadId: mensagens.leadId,
+      status: mensagens.status,
+      quando: mensagens.atualizadoEm,
+      produto: mensagens.produto,
+    })
     .from(mensagens)
     .where(inArray(mensagens.status, ["enviada", "entregue", "respondida", "erro"]))
     .orderBy(desc(mensagens.atualizadoEm))
@@ -116,6 +121,7 @@ export async function GET() {
     lead: nomePorId.get(r.leadId) ?? "?",
     status: r.status,
     quando: r.quando,
+    produto: r.produto,
   }));
 
   const statusWorker = calcularStatusWorker({
@@ -150,6 +156,7 @@ export async function GET() {
           cidade: proximaLead?.cidade ?? null,
           categoria: proximaLead?.categoria ?? null,
           pontuacao: proximaLead?.score ?? null,
+          produto: proxima.produto,
           trecho: proxima.texto.slice(0, 80),
         }
       : null,

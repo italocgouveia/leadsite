@@ -41,13 +41,24 @@ export type Alvo = { lead: Lead; texto: string };
 /** Um motivo de recusa e quantos leads caíram nele. */
 export type Recusa = { motivo: string; quantidade: number };
 
+export type ProdutoDisparo = "site" | "chatbot" | "sistema";
+
 /**
  * Varre a base inteira e devolve quem pode receber agora.
  *
  * Duas consultas no total, não duas por lead: leads e mensagens vêm de uma vez
  * e as regras rodam em memória, pela mesma função que a fila usa no envio.
+ *
+ * `filtro.produto` força a abordagem (ver `textoPara` em campanha.ts) — sem
+ * ele, o motor escolhe sozinho pelo que cada lead precisa. Não filtra QUEM
+ * entra por segmento: isso é feito depois, em memória, por quem chama (ver
+ * `previaFiltrada`), porque a mesma varredura serve tanto para contar por
+ * segmento quanto para aplicar um filtro específico.
  */
-async function elegiveis(cfg: Config): Promise<{ aptos: Alvo[]; recusas: Recusa[] }> {
+async function elegiveis(
+  cfg: Config,
+  filtro: { produto?: ProdutoDisparo } = {},
+): Promise<{ aptos: Alvo[]; recusas: Recusa[] }> {
   const [base, historico] = await Promise.all([
     db.select().from(leads),
     db
@@ -92,7 +103,7 @@ async function elegiveis(cfg: Config): Promise<{ aptos: Alvo[]; recusas: Recusa[
       continue;
     }
 
-    const texto = textoPara(lead);
+    const texto = textoPara(lead, filtro.produto);
     if (!texto) {
       recusar("Sem mensagem possível para este ramo.");
       continue;
@@ -109,6 +120,63 @@ async function elegiveis(cfg: Config): Promise<{ aptos: Alvo[]; recusas: Recusa[
     .sort((a, b) => b.quantidade - a.quantidade);
 
   return { aptos, recusas };
+}
+
+export type PreviaFiltrada = {
+  /** Quantos leads elegíveis (todas as travas da fila) esse filtro devolve. */
+  total: number;
+  /** Contagem por segmento, dentro do universo elegível — alimenta a grade de nichos. */
+  segmentos: { nome: string; quantidade: number }[];
+  /** A próxima mensagem real que sairia, já com a saudação resolvida. */
+  amostra: { nome: string; cidade: string | null; nota: number; texto: string } | null;
+  /**
+   * Ids prontos para virar `leadIds` de `POST /api/campanhas`. Limitado a 300
+   * — o mesmo teto que a rota de campanhas aceita — porque preparar mais que
+   * isso de uma vez não muda nada: o teto diário escoa aos poucos de qualquer
+   * jeito, e a fila aceita ser preparada de novo depois.
+   */
+  leadIds: string[];
+};
+
+/**
+ * O que "preparar fila" veria AGORA, para um nicho e uma abordagem — sem
+ * gravar nada. Usa a MESMA varredura de `elegiveis`, então o número mostrado
+ * na tela é exatamente quem vai entrar quando o usuário clicar.
+ */
+export async function previaFiltrada(
+  filtro: { segmento?: string; produto?: ProdutoDisparo } = {},
+): Promise<PreviaFiltrada> {
+  const cfg = await lerConfig();
+  const { aptos } = await elegiveis(cfg, { produto: filtro.produto });
+
+  const porSegmento = new Map<string, number>();
+  for (const a of aptos) {
+    const seg = categoriaSingular(a.lead.categoria);
+    porSegmento.set(seg, (porSegmento.get(seg) ?? 0) + 1);
+  }
+  const segmentos = [...porSegmento.entries()]
+    .map(([nome, quantidade]) => ({ nome, quantidade }))
+    .sort((a, b) => b.quantidade - a.quantidade);
+
+  const filtrados = filtro.segmento
+    ? aptos.filter((a) => categoriaSingular(a.lead.categoria) === filtro.segmento)
+    : aptos;
+
+  const primeiro = filtrados[0];
+
+  return {
+    total: filtrados.length,
+    segmentos,
+    amostra: primeiro
+      ? {
+          nome: primeiro.lead.nome,
+          cidade: primeiro.lead.cidade,
+          nota: pontuar(primeiro.lead).total,
+          texto: resolverSaudacao(primeiro.texto),
+        }
+      : null,
+    leadIds: filtrados.slice(0, 300).map((a) => a.lead.id),
+  };
 }
 
 export type Previa = {

@@ -209,6 +209,32 @@ const SIGLA_POR_NOME: Record<string, string> = {
   "sao paulo": "SP", tocantins: "TO",
 };
 
+/**
+ * Emoji por segmento — puramente visual, cai num padrão quando não conhece.
+ * Compartilhado entre /campanhas e /disparos: as duas telas mostram grade de
+ * nicho, então o mapeamento vive num só lugar.
+ */
+export function iconeCategoria(segmentoSingular: string): string {
+  const t = segmentoSingular.toLowerCase();
+  if (/oficina|mec[âa]nic|auto|borracharia|pneu/.test(t)) return "🔧";
+  if (/lava|est[ée]tica automotiva/.test(t)) return "🚗";
+  if (/cl[íi]nic|m[ée]dic|consult[óo]rio|odonto|dentista|fisio|psicolog/.test(t)) return "🏥";
+  if (/sal[ãa]o|barbear|cabelo|beleza|manicure/.test(t)) return "💇";
+  if (/est[ée]tica/.test(t)) return "💆";
+  if (/pet|veterin/.test(t)) return "🐶";
+  if (/restaurante|lanchonete|pizza|caf[ée]|padaria|bar\b/.test(t)) return "🍽️";
+  if (/farm[áa]cia|drogaria/.test(t)) return "💊";
+  if (/im[óo]vel|imobili/.test(t)) return "🏠";
+  if (/academia|pilates|crossfit/.test(t)) return "🏋️";
+  if (/advoc|advogad/.test(t)) return "⚖️";
+  if (/contab/.test(t)) return "🧾";
+  if (/arquitet/.test(t)) return "📐";
+  if (/engenh/.test(t)) return "🏗️";
+  if (/escola|ensino|curso/.test(t)) return "🎓";
+  if (/m[óo]vel|marcenaria|decora[çc][ãa]o/.test(t)) return "🛋️";
+  return "🏢";
+}
+
 export function siglaDoEstado(bruto?: string | null): string | null {
   const t = (bruto ?? "").trim();
   if (!t) return null;
