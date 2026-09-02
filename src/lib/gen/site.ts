@@ -1,11 +1,33 @@
 import type { Lead, ModeloSite } from "@/lib/db/schema";
 import { gerarTexto } from "./cliente";
+import type { IdentidadeVisual } from "./identidade";
 
 const SISTEMA = `Você cria sites de uma página para pequenos negócios brasileiros.
 
 O site é uma PRÉVIA de vendas: o dono do negócio vai receber o link no WhatsApp
 sem nunca ter pedido nada. Em 5 segundos ele precisa pensar "caramba, é o meu
 negócio, ficou lindo". Se parecer template genérico, a venda morre.
+
+ANTES DE ESCREVER, ENTENDA O NEGÓCIO:
+Pelo ramo e pelos dados que eu forneço, decida — em silêncio, antes da primeira
+linha — quatro coisas:
+1. O que esse negócio especificamente vende ou resolve.
+2. Quem procura esse negócio e com que urgência (comparar preço com calma? ligar
+   na hora porque o carro quebrou? decidir junto com a família?).
+3. Que informação falta na cabeça dessa pessoa para ela confiar e decidir —
+   é isso que a página precisa responder, não uma lista de seções genérica.
+4. Qual é A AÇÃO que faz sentido pedir NO FINAL — reservar, orçar, agendar,
+   pedir, visitar, ligar. Uma só. É o seu CTA principal.
+A estrutura, os títulos e o que aparece primeiro nascem dessa análise, não de
+um esqueleto padrão. Pense nisso como se fosse escrever pra ESTE dono, sobre
+ESTE negócio — não preencher campos de um formulário.
+
+A LEITURA DE QUEM CHEGA (organize a página em torno disto, sem rotular as
+seções com esses nomes):
+Atenção (a primeira tela prende ou perde) → Entendimento (o que é, pra quem) →
+Confiança (prova real: nota do Google, estrutura, o que já existe) → Desejo
+(o que essa pessoa ganha ao fechar) → Ação (o CTA, no momento certo — não só
+no rodapé, também depois de qualquer seção que já convenceu).
 
 REGRAS TÉCNICAS (obrigatórias):
 - Devolva UM arquivo HTML completo, de <!DOCTYPE html> até </html>. Nada mais.
@@ -71,6 +93,14 @@ robô. Sites gerados por IA têm tiques que qualquer um reconhece. Evite TODOS:
 4. PERGUNTA RETÓRICA COMO CHAMADA.
    "Pronto para transformar seu visual?", "Bora agendar?", "Que tal começar hoje?"
    Troque por uma frase afirmativa e direta, ou só o botão sozinho.
+
+4b. TEXTO DE BOTÃO VAGO. "Saiba mais", "Confira", "Clique aqui", "Ver mais"
+   são proibidos — não dizem o que acontece ao clicar. O texto do botão é o
+   verbo da ação que você decidiu no início (reservar, orçar, agendar, pedir,
+   visitar, ligar), na voz de quem clica: "Quero reservar", "Solicitar
+   orçamento", "Agendar horário", "Fazer pedido", "Ver disponibilidade",
+   "Falar no WhatsApp agora". Ajuste ao ramo — pousada reserva, oficina orça,
+   clínica agenda, restaurante pede ou reserva mesa, loja pergunta pelo produto.
 
 5. PALAVRA DE FOLHETO. Banidas:
    excelência, exclusividade, inovador, diferenciado, personalizado, sob medida,
@@ -138,6 +168,9 @@ PALETA (3 cores + 2 neutros, sempre):
   salão/estética #eeb52f (dourado) · restaurante #c2410c (terracota) ·
   clínica #0f766e (verde profundo) · oficina #b45309 (âmbar) ·
   advocacia #7c2d3e (vinho) · pet #0369a1 (azul petróleo)
+  SE eu fornecer uma cor extraída do site atual do negócio, use ELA em vez da
+  sugestão por ramo — é a identidade real da marca, e a regra aqui é respeitar
+  o que já existe, não inventar uma nova.
 - Opcional: um segundo tom escuro da mesma família para detalhe.
 
 RITMO DAS SEÇÕES — é o que faz parecer caro:
@@ -183,7 +216,7 @@ LIMITES (animação ruim é pior que nenhuma):
   visível, ou garanta a classe final no load. Site em branco por causa de
   animação perde a venda.`;
 
-function briefing(lead: Lead, fotos: string[]): string {
+function briefing(lead: Lead, fotos: string[], identidade: IdentidadeVisual | null): string {
   const linhas = [
     `Nome: ${lead.nome}`,
     `Ramo: ${lead.categoria ?? "não informado"}`,
@@ -192,12 +225,19 @@ function briefing(lead: Lead, fotos: string[]): string {
     `Endereço completo: ${lead.endereco ?? "não informado"}`,
     lead.telefone ? `Telefone: ${lead.telefone}` : "Telefone: não informado",
     lead.whatsapp ? `Link do WhatsApp (use exatamente este): ${lead.whatsapp}` : null,
+    lead.instagram ? `Instagram real (pode linkar no rodapé/contato): ${lead.instagram}` : null,
     lead.nota != null
       ? `Nota no Google: ${lead.nota} (${lead.avaliacoes ?? 0} avaliações) — use como prova social`
       : "Sem nota no Google — não invente prova social",
     fotos.length
       ? `Fotos reais do estabelecimento (use estas URLs):\n${fotos.map((f) => `  - ${f}`).join("\n")}`
       : "Sem fotos disponíveis — use gradientes/formas, não use <img> externa",
+    identidade?.corDestaque
+      ? `Cor de destaque do site atual do negócio (USE ESTA, é a identidade real da marca): ${identidade.corDestaque}`
+      : null,
+    identidade?.titulo || identidade?.descricao
+      ? `Como o site atual do negócio se descreve — use só para captar o TOM de voz, nunca para copiar frase:\n  "${[identidade.titulo, identidade.descricao].filter(Boolean).join(" — ")}"`
+      : null,
     // Dados que só o dono sabe. Quando vazios, a seção correspondente some.
     lead.precos
       ? `Preços REAIS (use exatamente estes, na seção de serviços):
@@ -267,16 +307,23 @@ export type OpcoesGeracao = {
   modelo?: ModeloSite;
   /** SVG do logo já gerado, pra embutir no header em vez de texto puro. */
   logoSvg?: string | null;
+  /** Sinais extraídos do site atual do negócio, se houver — ver identidade.ts. */
+  identidade?: IdentidadeVisual | null;
 };
 
 /** Geração inicial do site a partir dos dados do lead. */
 export async function gerarSite(lead: Lead, opcoes: OpcoesGeracao = {}): Promise<string> {
-  const { fotos = [], modelo = "completo", logoSvg = null } = opcoes;
+  const { fotos: fotosBase = [], modelo = "completo", logoSvg = null, identidade = null } = opcoes;
+  // A imagem do site atual (og:image) entra como mais uma foto real, se houver.
+  const fotos =
+    identidade?.imagemDestaque && !fotosBase.includes(identidade.imagemDestaque)
+      ? [...fotosBase, identidade.imagemDestaque]
+      : fotosBase;
 
   const sorteio = <T,>(lista: readonly T[]) => lista[Math.floor(Math.random() * lista.length)];
 
   const partes = [
-    `Crie o site deste negócio:\n\n${briefing(lead, fotos)}`,
+    `Crie o site deste negócio:\n\n${briefing(lead, fotos, identidade)}`,
     ``,
     `Direção visual para ESTE site: ${sorteio(DIRECOES_VISUAIS)}`,
     `Estrutura para ESTE site: ${sorteio(ESTRUTURAS)}`,

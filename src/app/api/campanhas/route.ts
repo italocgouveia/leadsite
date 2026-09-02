@@ -18,7 +18,13 @@ import {
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+/**
+ * 60s bastava quando montar campanha só gravava texto pronto. Com
+ * `usarIA`, é uma chamada ao Gemini POR LEAD, sequencial — mesmo raciocínio
+ * "low" e mensagem curta, um lote de leads pode passar de 60s. Mesmo teto
+ * que /api/sites/generate já usa pelo mesmo motivo.
+ */
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
@@ -31,6 +37,8 @@ const Montar = z.object({
   leadIds: z.array(z.string().uuid()).min(1).max(300),
   /** Texto literal e único para todos os leads — ver `montarCampanha`. */
   mensagem: z.string().min(10).max(4000).optional(),
+  /** Uma mensagem por IA, diferente por lead — ver `montarCampanha`. */
+  usarIA: z.boolean().optional(),
   produto: z.enum(["site", "chatbot", "sistema"]).optional(),
   filtro: z.record(z.string(), z.unknown()).optional(),
 });

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq, desc } from "drizzle-orm";
 import { db, leads, sites, siteVersions, logos } from "@/lib/db";
 import { gerarSite, gerarSlug } from "@/lib/gen/site";
+import { extrairIdentidadeDoSite } from "@/lib/gen/identidade";
 import { injetarNoSite } from "@/lib/gen/injetar";
 import { validarSite } from "@/lib/gen/validar";
 import { carregarConfig } from "@/lib/config";
@@ -53,12 +54,22 @@ export async function POST(request: Request) {
     logoSvg = logo?.svg ?? null;
   }
 
+  /**
+   * Só tenta extrair identidade de um site DE VERDADE (statusSite "tem-site")
+   * — Instagram, agregador ou URL fora do ar não vale a viagem de rede, e
+   * `extrairIdentidadeDoSite` já falha em silêncio se o fetch não voltar nada
+   * útil. Nunca bloqueia a geração: no pior caso, segue sem identidade extra.
+   */
+  const identidade =
+    lead.statusSite === "tem-site" ? await extrairIdentidadeDoSite(lead.website) : null;
+
   let html: string;
   try {
     html = await gerarSite(lead, {
       fotos: lead.fotos ?? [],
       modelo: params.modelo,
       logoSvg,
+      identidade,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Falha ao gerar o site";

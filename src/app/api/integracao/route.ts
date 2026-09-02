@@ -8,6 +8,7 @@ import { provedorDe, mascarar } from "@/lib/providers";
 import { decifrar } from "@/lib/segredo";
 import { registrar } from "@/lib/campanha";
 import { prepararNumero } from "@/lib/telefone";
+import { consultarBridge } from "@/lib/bridge";
 
 /**
  * Integração de WhatsApp: estado, teste de conexão, teste de envio e
@@ -28,8 +29,20 @@ export async function GET(request: Request) {
 
   const [c] = await db.select().from(configuracoes).limit(1);
 
+  /**
+   * `estado.pronta` só diz "a configuração está completa e já passou num
+   * teste alguma vez" — nunca expira sozinho, então continuava mostrando
+   * "🟢 conectado" com o WhatsApp caído/reconectando. `bridge` é a checagem
+   * AO VIVO (mesma que /disparos já usa) — só existe para o provedor
+   * "custom" (esta bridge própria); Evolution/WAHA não têm esse endpoint,
+   * então fica `null` e a tela mantém o comportamento antigo pra eles.
+   */
+  const cfgProv = await lerConfigProvedor();
+  const bridge = cfgProv ? await consultarBridge(cfgProv) : null;
+
   return NextResponse.json({
     ...estado,
+    bridge,
     // Nunca o token: só a máscara.
     tokenMascarado: mascarar(decifrar(c?.provedorToken ?? null)),
     webhook: {

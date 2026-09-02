@@ -28,6 +28,9 @@ export default function NovoSite() {
     estado: "MG",
     telefone: "",
     endereco: "",
+    website: "",
+    instagram: "",
+    diferenciais: "",
   });
 
   useEffect(() => {
@@ -183,6 +186,20 @@ export default function NovoSite() {
             {campo("cidade", "Cidade")}
             {campo("estado", "UF")}
             <div className="sm:col-span-2">{campo("endereco", "Endereço")}</div>
+            {campo("website", "Site (se houver)")}
+            {campo("instagram", "Instagram (se houver)")}
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-[13px] text-[var(--texto-2)]">
+                O que você já sabe sobre o negócio
+              </label>
+              <textarea
+                value={form.diferenciais}
+                onChange={(e) => setForm({ ...form, diferenciais: e.target.value })}
+                placeholder="Serviços, especialidades, estrutura, o que destaca esse negócio dos concorrentes…"
+                rows={3}
+                className="campo-apple w-full resize-y"
+              />
+            </div>
           </div>
         )}
 

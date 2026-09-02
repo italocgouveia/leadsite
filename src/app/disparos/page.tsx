@@ -5,32 +5,37 @@ import Link from "next/link";
 import type { Lead, StatusMensagem } from "@/lib/db/schema";
 import { categoriaSingular, iconeCategoria } from "@/lib/categoria-nome";
 import type { PreviaFiltrada } from "@/lib/disparo";
+import { OPCOES_ABORDAGEM, type Abordagem } from "@/lib/abordagem";
 
 /**
  * Disparos automáticos — a ÚNICA tela para preparar, iniciar, pausar e
  * acompanhar disparos.
  *
- * Fluxo: escolher nicho (contagem real, sem limite escondido) → escrever UMA
- * mensagem → confirmar → PREPARAR FILA → INICIAR DISPAROS → o worker da
- * bridge trabalha sozinho.
+ * Fluxo: escolher nicho (contagem real, sem limite escondido) → escolher a
+ * abordagem → a IA gera uma mensagem PRÓPRIA para cada lead elegível →
+ * PREPARAR FILA → INICIAR DISPAROS → o worker da bridge trabalha sozinho.
  *
- * DECISÃO DELIBERADA: a mensagem é sempre o texto que a pessoa escreve aqui,
- * literal, para TODOS os leads da campanha — nunca um motor por lead
- * (`lib/proposta.ts`/`lib/sistemas.ts`, que ainda existem e continuam
- * servindo /campanhas) e nunca IA (que só entra em `lib/gen/*`, geração de
- * site — nada disso participa do texto de disparo). Ver `montarCampanha` em
- * lib/campanha.ts: com `mensagem` preenchida, o `textoPara` por lead é
- * ignorado por completo.
+ * DECISÃO DELIBERADA (revertida de uma versão anterior): a mensagem NÃO é
+ * mais um texto único repetido para o lote inteiro. Cada lead recebe uma
+ * mensagem gerada por IA especificamente para ele — nome, ramo, cidade,
+ * nota do Google, Instagram/site quando existem — nunca inventando fato que
+ * não veio do cadastro. Ver `lib/gen/mensagem-prospeccao.ts`. A IA só
+ * escreve texto: quem decide QUEM entra na fila continua sendo as mesmas
+ * travas de sempre (`lib/fila.ts`), e quem ENVIA continua sendo só o worker
+ * da bridge — a IA nunca manda mensagem, nunca controla o worker.
  *
  * /disparar e /automacao continuam existindo só como redirect para cá (ver
  * os arquivos deles) — link salvo ou aba antiga não pode virar 404. Esta
  * tela é a única com botão de "manda agora": nenhum `fetch` daqui dispara
  * mensagem — quem envia é sempre o worker único da bridge
  * (`whatsapp-node/servidor.js`, `puxarFila`), mesmo com esta aba fechada. O
- * navegador só chama rotas que já existiam: `/api/disparo/preview` (só
- * lê), `/api/campanhas` (monta e aprova o rascunho), `/api/automacao/worker`
- * (liga/desliga o loop da bridge), `/api/disparo` DELETE (cancela o que não
- * saiu) e `/api/config` (grava o limite/intervalo/o interruptor mestre).
+ * navegador só chama rotas que já existiam ou são só-leitura:
+ * `/api/disparo/preview` (contagem), `/api/disparo/preview-mensagens`
+ * (prévia gerada por IA, não grava nada), `/api/campanhas` (monta e aprova
+ * o rascunho — a geração por IA acontece NO SERVIDOR, dentro dessa rota),
+ * `/api/automacao/worker` (liga/desliga o loop da bridge), `/api/disparo`
+ * DELETE (cancela o que não saiu) e `/api/config` (grava o limite/intervalo/
+ * o interruptor mestre).
  */
 
 type SaudeBridge =
@@ -80,7 +85,8 @@ type LinhaRascunho = {
   lead: Lead;
 };
 
-type CampanhaPronta = { nicho: string; quantidade: number; mensagem: string };
+type Amostra = { nome: string; cidade: string | null; mensagem: string };
+type CampanhaPronta = { nicho: string; abordagem: string; quantidade: number };
 
 const ROTULO_STATUS: Partial<Record<StatusMensagem, string>> = {
   enviada: "Enviada",
@@ -110,8 +116,6 @@ const BANNER_POR_ESTADO: Record<EstadoCodigo, string> = {
   "whatsapp-erro": "bg-[var(--vermelho-fraco)] text-[var(--vermelho)]",
 };
 
-const MENSAGEM_MIN = 10;
-
 export default function Disparos() {
   const [painel, setPainel] = useState<Painel | null>(null);
   const [rascunhos, setRascunhos] = useState<LinhaRascunho[]>([]);
@@ -137,9 +141,13 @@ export default function Disparos() {
   const [nichoEscolhido, setNichoEscolhido] = useState(false);
   const [preview, setPreview] = useState<PreviaFiltrada | null>(null);
 
-  // ---------- passo 2: uma única mensagem, literal ----------
-  const [mensagemRascunho, setMensagemRascunho] = useState("");
-  const [mensagemConfirmada, setMensagemConfirmada] = useState<string | null>(null);
+  // ---------- passo 2: abordagem (define a oferta que a IA vai propor) ----------
+  const [abordagem, setAbordagem] = useState<Abordagem>("");
+  const [abordagemEscolhida, setAbordagemEscolhida] = useState(false);
+
+  // ---------- prévia: mensagens reais geradas por IA, antes de preparar tudo ----------
+  const [amostras, setAmostras] = useState<Amostra[] | null>(null);
+  const [gerandoAmostras, setGerandoAmostras] = useState(false);
 
   const [preparando, setPreparando] = useState(false);
   const [campanhaPronta, setCampanhaPronta] = useState<CampanhaPronta | null>(null);
@@ -147,18 +155,15 @@ export default function Disparos() {
   function escolherSegmento(v: string) {
     setSegmento(v);
     setNichoEscolhido(true);
+    setAmostras(null);
     setCampanhaPronta(null);
   }
 
-  function confirmarMensagem() {
-    const texto = mensagemRascunho.trim();
-    if (texto.length < MENSAGEM_MIN) return;
-    setMensagemConfirmada(texto);
+  function escolherAbordagem(v: Abordagem) {
+    setAbordagem(v);
+    setAbordagemEscolhida(true);
+    setAmostras(null);
     setCampanhaPronta(null);
-  }
-
-  function editarMensagem() {
-    setMensagemConfirmada(null);
   }
 
   const carregarPreview = useCallback(async () => {
@@ -173,6 +178,25 @@ export default function Disparos() {
       await carregarPreview();
     })();
   }, [carregarPreview]);
+
+  /**
+   * Gera só uns poucos exemplos REAIS (leads de verdade, IA de verdade) para
+   * a pessoa conferir que está personalizando antes de gastar a chamada por
+   * lead do lote inteiro. Não grava nada — ver /api/disparo/preview-mensagens.
+   */
+  async function gerarAmostras() {
+    setGerandoAmostras(true);
+    setAmostras(null);
+    try {
+      const q = new URLSearchParams();
+      if (segmento) q.set("segmento", segmento);
+      if (abordagem) q.set("produto", abordagem);
+      const r = await fetch(`/api/disparo/preview-mensagens?${q}`).then((x) => x.json());
+      setAmostras(r.amostras ?? []);
+    } finally {
+      setGerandoAmostras(false);
+    }
+  }
 
   /**
    * Um único `carregarTudo`, não dois `fetch` soltos no efeito: chamar duas
@@ -349,28 +373,32 @@ export default function Disparos() {
   const nichoLabel = segmento || "Todos os nichos";
   const totalGeral = preview?.segmentos.reduce((s, x) => s + x.total, 0) ?? 0;
   const disponivelGeral = preview?.segmentos.reduce((s, x) => s + x.disponivel, 0) ?? 0;
+  const abordagemAtual = OPCOES_ABORDAGEM.find((o) => o.valor === abordagem) ?? OPCOES_ABORDAGEM[0];
 
   /**
    * Preparar fila usa a MESMA função de campanha que /campanhas já usa —
-   * `POST /api/campanhas` monta o rascunho com o texto ÚNICO confirmado
-   * (revalidando elegibilidade lead a lead, mas nunca trocando o texto) e
-   * `PATCH .../iniciar` aprova. Nenhuma das duas envia: só o worker da
-   * bridge, chamando `/api/automacao/fila`, manda mensagem de verdade.
+   * `POST /api/campanhas` com `usarIA: true` monta o rascunho gerando UMA
+   * mensagem por lead, no servidor (ver `montarCampanha` em lib/campanha.ts
+   * e `lib/gen/mensagem-prospeccao.ts`). `PATCH .../iniciar` aprova. Nenhuma
+   * das duas envia: só o worker da bridge, chamando `/api/automacao/fila`,
+   * manda mensagem de verdade — e manda exatamente o texto que foi salvo
+   * aqui, sem gerar nada de novo na hora do envio.
    */
   async function prepararFila() {
-    if (!preview || preview.disponivel === 0 || !mensagemConfirmada) return;
+    if (!preview || preview.disponivel === 0) return;
     setPreparando(true);
     try {
       const data = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
-      const nome = `${nichoLabel} — ${data}`;
+      const nome = `${nichoLabel} — ${abordagemAtual.rotulo} — ${data}`;
       const r = await fetch("/api/campanhas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nome,
           leadIds: preview.leadIds,
-          mensagem: mensagemConfirmada,
-          filtro: { segmento },
+          usarIA: true,
+          produto: abordagem || undefined,
+          filtro: { segmento, abordagem },
         }),
       }).then((x) => x.json());
 
@@ -382,12 +410,19 @@ export default function Disparos() {
         });
       }
 
-      setCampanhaPronta({ nicho: nichoLabel, quantidade: r.criadas ?? 0, mensagem: mensagemConfirmada });
-      setAviso(`✓ Fila preparada — ${r.criadas ?? 0} empresa(s) pronta(s) para receber.`);
+      setCampanhaPronta({ nicho: nichoLabel, abordagem: abordagemAtual.rotulo, quantidade: r.criadas ?? 0 });
+      const puladasPorFalhaIA = (r.pulados ?? []).filter((p: { motivo: string }) =>
+        p.motivo?.includes("IA"),
+      ).length;
+      setAviso(
+        `✓ Fila preparada — ${r.criadas ?? 0} mensagem(ns) personalizada(s) por IA, pronta(s) para receber.` +
+          (puladasPorFalhaIA > 0 ? ` ${puladasPorFalhaIA} pulada(s) por falha ao gerar.` : ""),
+      );
       setSegmento("");
       setNichoEscolhido(false);
-      setMensagemConfirmada(null);
-      setMensagemRascunho("");
+      setAbordagem("");
+      setAbordagemEscolhida(false);
+      setAmostras(null);
       await Promise.all([carregarTudo(), carregarPreview()]);
     } finally {
       setPreparando(false);
@@ -422,7 +457,7 @@ export default function Disparos() {
         <div>
           <h1 className="text-[24px] font-semibold sm:text-[28px]">🚀 Disparos</h1>
           <p className="mt-1.5 text-[14px] text-[var(--texto-2)]">
-            Escolha o nicho, escreva uma mensagem e deixe o sistema trabalhar sozinho.
+            Escolha o nicho e a abordagem — a IA escreve uma mensagem própria para cada lead.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -571,64 +606,56 @@ export default function Disparos() {
             )}
           </section>
 
-          {/* --- Passo 2: a mensagem --- */}
+          {/* --- Passo 2: abordagem --- */}
           {nichoEscolhido && (
             <section className="cartao surgir mb-6 p-5">
-              <p className="mb-1 text-[15px] font-semibold">Passo 2 — Escreva a mensagem</p>
+              <p className="mb-1 text-[15px] font-semibold">Passo 2 — Escolha a abordagem</p>
               <p className="mb-4 text-[13px] text-[var(--texto-2)]">
-                Essa é a mensagem oficial da campanha. Vai para todos os leads deste nicho{" "}
-                <strong>exatamente como está escrita aqui</strong> — sem personalização automática.
+                Define o que a IA vai oferecer. A mensagem em si é escrita individualmente para
+                cada lead — isto só define a oferta.
               </p>
 
-              {mensagemConfirmada ? (
-                <>
-                  <p className="whitespace-pre-line rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13.5px] leading-relaxed">
-                    {mensagemConfirmada}
-                  </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {OPCOES_ABORDAGEM.map((o) => (
                   <button
-                    onClick={editarMensagem}
-                    className="mt-2 text-[12.5px] text-[var(--azul)] hover:underline"
+                    key={o.valor}
+                    onClick={() => escolherAbordagem(o.valor)}
+                    className={`rounded-[12px] px-3.5 py-3 text-left transition ${
+                      abordagemEscolhida && abordagem === o.valor
+                        ? "bg-[var(--azul)] text-white"
+                        : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
+                    }`}
                   >
-                    Editar mensagem
-                  </button>
-                </>
-              ) : (
-                <>
-                  <textarea
-                    value={mensagemRascunho}
-                    onChange={(e) => setMensagemRascunho(e.target.value)}
-                    placeholder="Olá! Tudo bem? Vi a empresa de vocês e gostei bastante do trabalho..."
-                    rows={5}
-                    className="campo w-full resize-y"
-                  />
-                  <div className="mt-2 flex items-center gap-3">
-                    <button
-                      onClick={confirmarMensagem}
-                      disabled={mensagemRascunho.trim().length < MENSAGEM_MIN}
-                      className="btn-primario"
+                    <span className="text-[14px] font-medium">
+                      {o.emoji} {o.rotulo}
+                    </span>
+                    <span
+                      className={`block text-[12px] ${
+                        abordagemEscolhida && abordagem === o.valor ? "text-white/80" : "text-[var(--texto-3)]"
+                      }`}
                     >
-                      Usar esta mensagem
-                    </button>
-                    {mensagemRascunho.trim().length > 0 &&
-                      mensagemRascunho.trim().length < MENSAGEM_MIN && (
-                        <span className="text-[12px] text-[var(--texto-3)]">
-                          Mínimo de {MENSAGEM_MIN} caracteres.
-                        </span>
-                      )}
-                  </div>
-                </>
-              )}
+                      {o.descricao}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </section>
           )}
 
-          {/* --- resumo da campanha + preparar fila --- */}
-          {nichoEscolhido && mensagemConfirmada && preview && (
+          {/* --- prévia + preparar fila --- */}
+          {nichoEscolhido && abordagemEscolhida && preview && (
             <section className="cartao surgir mb-6 p-5">
               <p className="mb-3 text-[15px] font-semibold">Campanha</p>
               <dl className="space-y-2.5 text-[13.5px]">
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-[var(--texto-2)]">Nicho</dt>
                   <dd className="truncate text-right font-medium capitalize">{nichoLabel}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-[var(--texto-2)]">Abordagem</dt>
+                  <dd className="text-right font-medium">
+                    {abordagemAtual.emoji} {abordagemAtual.rotulo}
+                  </dd>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-[var(--texto-2)]">Leads encontrados</dt>
@@ -640,28 +667,55 @@ export default function Disparos() {
                 </div>
               </dl>
 
-              {preview.proximos.length > 0 && (
-                <>
-                  <p className="mb-1.5 mt-4 text-[12px] uppercase tracking-[0.08em] text-[var(--texto-3)]">
-                    Próximos leads (prévia)
-                  </p>
-                  <ul className="space-y-1 text-[13px] text-[var(--texto-2)]">
-                    {preview.proximos.map((p, i) => (
-                      <li key={i} className="truncate">
-                        {i + 1}. {p.nome}
-                        {p.cidade ? ` — ${p.cidade}` : ""}
-                      </li>
+              <div className="mt-4 border-t border-[var(--linha)] pt-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-[13px] font-medium">Prévia das mensagens (geradas por IA)</p>
+                  <button
+                    onClick={gerarAmostras}
+                    disabled={gerandoAmostras || preview.disponivel === 0}
+                    className="btn-secundario"
+                  >
+                    {gerandoAmostras
+                      ? "Gerando…"
+                      : amostras
+                        ? "Gerar de novo"
+                        : "Ver prévia de mensagens"}
+                  </button>
+                </div>
+
+                {amostras && amostras.length > 0 && (
+                  <div className="space-y-3">
+                    {amostras.map((a, i) => (
+                      <div key={i} className="rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
+                        <p className="text-[12.5px] font-medium text-[var(--texto-2)]">
+                          {a.nome}
+                          {a.cidade ? ` — ${a.cidade}` : ""}
+                        </p>
+                        <p className="mt-1 whitespace-pre-line text-[13.5px] leading-relaxed">
+                          {a.mensagem}
+                        </p>
+                      </div>
                     ))}
-                  </ul>
-                </>
-              )}
+                    <p className="text-[12px] text-[var(--texto-3)]">
+                      Cada lead do lote recebe uma mensagem própria, gerada na hora de preparar a
+                      fila — estas 3 são só um exemplo do que a IA escreve.
+                    </p>
+                  </div>
+                )}
+
+                {amostras && amostras.length === 0 && (
+                  <p className="text-[13px] text-[var(--texto-2)]">
+                    Nenhum lead disponível para gerar prévia agora.
+                  </p>
+                )}
+              </div>
 
               <button
                 onClick={prepararFila}
                 disabled={preparando || preview.disponivel === 0}
                 className="btn-primario mt-5 w-full !py-3.5 !text-[16px]"
               >
-                {preparando ? "Preparando…" : "✓ PREPARAR FILA"}
+                {preparando ? "Gerando mensagens e preparando…" : "✓ PREPARAR FILA"}
               </button>
               {preview.disponivel === 0 && (
                 <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">
@@ -683,21 +737,19 @@ export default function Disparos() {
                   <dd className="text-right font-medium capitalize">{campanhaPronta.nicho}</dd>
                 </div>
                 <div className="flex items-center justify-between gap-3">
+                  <dt className="text-[var(--texto-2)]">Abordagem</dt>
+                  <dd className="text-right font-medium">{campanhaPronta.abordagem}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
                   <dt className="text-[var(--texto-2)]">Quantidade</dt>
                   <dd className="text-right font-medium tabular-nums">
                     {campanhaPronta.quantidade} leads
                   </dd>
                 </div>
               </dl>
-              <p className="mb-1.5 mt-3 text-[12px] uppercase tracking-[0.08em] text-[var(--texto-3)]">
-                Mensagem
-              </p>
-              <p className="whitespace-pre-line rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13.5px] leading-relaxed">
-                {campanhaPronta.mensagem}
-              </p>
-              <p className="mt-3 rounded-[10px] bg-[var(--ambar-fraco)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--ambar)]">
-                ⚠️ Esta mensagem será enviada exatamente como está para todos os leads desta
-                campanha.
+              <p className="mt-3 rounded-[10px] bg-[var(--azul-fraco)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--azul)]">
+                Cada lead recebeu uma mensagem própria, gerada por IA — não é o mesmo texto
+                repetido.
               </p>
 
               {filaPronta && (

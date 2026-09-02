@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { SaudeBridge } from "@/lib/bridge";
 
 /**
  * Assistente de integração de WhatsApp.
@@ -31,6 +32,8 @@ type Estado = {
   comoCorrigir: string[];
   aviso: string | null;
   pendencias: Pendencia[];
+  /** Checagem AO VIVO da bridge — só existe para o provedor "custom". */
+  bridge: SaudeBridge | null;
   webhook: {
     url: string;
     publico: boolean;
@@ -178,13 +181,33 @@ export default function IntegracaoWhatsapp() {
 
   const precisaInstancia = tipo !== "custom";
 
+  /**
+   * `e.pronta` só confirma que a CONFIGURAÇÃO está completa e já passou por
+   * um teste alguma vez — isso nunca expira sozinho. Quando a bridge (custom)
+   * responde, a checagem AO VIVO manda: WhatsApp pode estar desconectado ou
+   * reconectando AGORA mesmo com a configuração toda certa. Sem sinal ao vivo
+   * (Evolution/WAHA, ou bridge fora do ar), cai no que `pronta` já dizia.
+   */
+  const aoVivo = e.bridge?.alcancavel ? e.bridge.whatsappConectado : null;
+  const status =
+    !e.pronta
+      ? { emoji: "🔴", texto: "WhatsApp não configurado" }
+      : aoVivo === false
+        ? {
+            emoji: "🟡",
+            texto: `Configurado, mas o WhatsApp está desconectado agora${
+              e.bridge?.alcancavel ? ` (${e.bridge.whatsappEstado})` : ""
+            }`,
+          }
+        : { emoji: "🟢", texto: "WhatsApp conectado" };
+
   return (
     <div className="space-y-6">
       {/* ═══════════════════════════════ status ═══════════════════════════════ */}
       <section className="cartao-apple p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold tracking-tight text-[var(--texto)]">
-            {e.pronta ? "🟢 WhatsApp conectado" : "🔴 WhatsApp não configurado"}
+            {status.emoji} {status.texto}
           </h2>
           {e.testadoEm && (
             <span className="text-[12px] text-[var(--texto-3)]">
@@ -208,10 +231,18 @@ export default function IntegracaoWhatsapp() {
           </>
         )}
 
-        {e.pronta && e.estadoProvedor && (
+        {aoVivo === false && (
           <p className="text-[13px] text-[var(--texto-2)]">
+            A configuração está certa — o que caiu foi a sessão do WhatsApp em si.
+            Normalmente ela reconecta sozinha; se não voltar, escaneie o QR code de
+            novo direto na bridge.
+          </p>
+        )}
+
+        {e.pronta && e.estadoProvedor && (
+          <p className="mt-1 text-[13px] text-[var(--texto-2)]">
             {PROVEDORES.find((p) => p.valor === e.tipo)?.nome} · instância{" "}
-            <strong>{e.instancia}</strong> · estado {e.estadoProvedor}
+            <strong>{e.instancia}</strong> · última verificação: {e.estadoProvedor}
           </p>
         )}
       </section>

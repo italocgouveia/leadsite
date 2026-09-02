@@ -6,6 +6,7 @@ import { montarProposta } from "@/lib/proposta";
 import { montarPropostaSistema, avaliarSistema } from "@/lib/sistemas";
 import { avaliar } from "@/lib/oportunidade";
 import { pontuar } from "@/lib/pontuacao";
+import { gerarMensagemProspeccao } from "@/lib/gen/mensagem-prospeccao";
 
 /**
  * Campanhas: montar, iniciar, pausar, acompanhar.
@@ -53,16 +54,19 @@ export async function montarCampanha(params: {
   leadIds: string[];
   /**
    * Texto ÚNICO e literal para todos os leads da campanha, escrito pela
-   * pessoa em /disparos. Quando presente, IGNORA `produto`/`textoPara` por
-   * completo — nenhum motor por lead entra na jogada, e o texto vai para o
-   * banco exatamente como foi digitado (sem saudação dinâmica, sem trocar
-   * palavra, sem escolher "site"/"chatbot"/"sistema" sozinho).
-   *
-   * Sem `mensagem`: continua o comportamento antigo, usado por /campanhas —
-   * `textoPara` monta o texto por lead conforme `produto` (ou decide
-   * sozinho, sem `produto`).
+   * pessoa. Quando presente, IGNORA `usarIA`/`produto`/`textoPara` por
+   * completo — o texto vai para o banco exatamente como foi digitado.
+   * Continua existindo para quem quer controle total do texto, mas não é
+   * mais o padrão de /disparos — ver `usarIA`.
    */
   mensagem?: string;
+  /**
+   * Uma mensagem DIFERENTE por lead, escrita pela IA (ver
+   * lib/gen/mensagem-prospeccao.ts). É o padrão de /disparos: nicho +
+   * abordagem entram, cada lead sai com um texto próprio, nunca copiado dos
+   * outros. Ignorado se `mensagem` também vier — `mensagem` sempre vence.
+   */
+  usarIA?: boolean;
   produto?: "site" | "chatbot" | "sistema";
   filtro?: Record<string, unknown>;
 }) {
@@ -82,6 +86,11 @@ export async function montarCampanha(params: {
   const pulados: { nome: string; motivo: string }[] = [];
   let criadas = 0;
 
+  /**
+   * Sequencial, um lead de cada vez — de propósito, não `Promise.all`.
+   * Gerar por IA é uma chamada de rede por lead; disparar todas juntas é o
+   * que estoura a cota por minuto do Gemini gratuito no primeiro lote de 20.
+   */
   for (const lead of alvos) {
     const check = await podeContatar(lead, cfg);
     if (!check.pode) {
@@ -89,7 +98,26 @@ export async function montarCampanha(params: {
       continue;
     }
 
-    const texto = params.mensagem ?? textoPara(lead, params.produto);
+    let texto: string | null;
+    let origem: "modelo" | "ia" = "modelo";
+
+    if (params.mensagem) {
+      texto = params.mensagem;
+    } else if (params.usarIA) {
+      try {
+        texto = await gerarMensagemProspeccao(lead, { produto: params.produto });
+        origem = "ia";
+      } catch (e) {
+        pulados.push({
+          nome: lead.nome,
+          motivo: `Falha ao gerar mensagem por IA: ${e instanceof Error ? e.message : "erro desconhecido"}`,
+        });
+        continue;
+      }
+    } else {
+      texto = textoPara(lead, params.produto);
+    }
+
     if (!texto) {
       pulados.push({ nome: lead.nome, motivo: "Sem mensagem possível para este ramo." });
       continue;
@@ -99,9 +127,9 @@ export async function montarCampanha(params: {
       leadId: lead.id,
       campanhaId: campanha.id,
       texto,
-      // Mensagem literal não é "site"/"chatbot"/"sistema" — fica sem produto.
-      produto: params.produto ?? (params.mensagem ? null : avaliar(lead).produto),
-      origem: "modelo",
+      // Mensagem literal ou por IA não é "site"/"chatbot"/"sistema" fixo do lead.
+      produto: params.produto ?? (params.mensagem || params.usarIA ? null : avaliar(lead).produto),
+      origem,
       status: "rascunho",
       rodada: 0,
       // Mais quente sai primeiro, aqui também. Ver a coluna no schema.

@@ -20,6 +20,9 @@ const Body = z.object({
   endereco: z.string().optional(),
   telefone: z.string().optional(),
   website: z.string().optional(),
+  instagram: z.string().optional(),
+  /** O que já se sabe sobre o negócio — vira base da seção de destaque no site gerado. */
+  diferenciais: z.string().optional(),
   notas: z.string().optional(),
 });
 
@@ -54,6 +57,8 @@ export async function POST(request: Request) {
       telefone: formatarTelefone(params.telefone),
       whatsapp: linkWhatsapp(params.telefone),
       website: params.website ?? null,
+      instagram: params.instagram ?? null,
+      diferenciais: params.diferenciais ?? null,
       notas: params.notas ?? null,
       fotos: [],
       statusSite: auditoria.status,
