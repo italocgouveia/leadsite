@@ -57,6 +57,8 @@ type StatusWorker = {
 type Painel = {
   provedorConfigurado: boolean;
   aguardando: number;
+  /** Contagem por estado da fila inteira. */
+  estados?: Record<string, number>;
   enviadasHoje: number;
   respondidasHoje: number;
   errosHoje: number;
@@ -85,8 +87,36 @@ type LinhaRascunho = {
   lead: Lead;
 };
 
-type Amostra = { nome: string; cidade: string | null; mensagem: string };
-type CampanhaPronta = { nicho: string; abordagem: string; quantidade: number };
+type Amostra = {
+  nome: string;
+  cidade: string | null;
+  oportunidade?: string;
+  solucao?: string;
+  mensagem?: string;
+  erro?: string;
+};
+/** Espelho de `EstadoGeracao` em lib/gen/fila-geracao. */
+type EstadoGeracao = {
+  total: number;
+  pendente: number;
+  processando: number;
+  pronta: number;
+  pulada: number;
+  erro: number;
+  proximaTentativaEm: string | null;
+  problemas: { motivo: string; quantos: number }[];
+};
+
+type CampanhaPronta = {
+  nicho: string;
+  abordagem: string;
+  quantidade: number;
+  campanhaId: string;
+  /** Só depois de aprovada as mensagens saem de rascunho para a fila. */
+  aprovada?: boolean;
+  /** Estado da fila de geração — vem do servidor, não do que a aba fez. */
+  estado?: EstadoGeracao;
+};
 
 const ROTULO_STATUS: Partial<Record<StatusMensagem, string>> = {
   enviada: "Enviada",
@@ -384,39 +414,52 @@ export default function Disparos() {
    * manda mensagem de verdade — e manda exatamente o texto que foi salvo
    * aqui, sem gerar nada de novo na hora do envio.
    */
+  /**
+   * Gera em LOTES, não numa requisição só.
+   *
+   * Cada lead é uma ida ao Gemini de ~15-30s; 40 leads não caberiam em
+   * requisição nenhuma. Aqui a campanha nasce vazia e o navegador vai
+   * pedindo o próximo lote, mostrando o progresso. O progresso fica no
+   * banco: se esta aba fechar no meio, a campanha para onde parou e as
+   * mensagens já geradas continuam lá — nada é perdido nem duplicado.
+   *
+   * Continua sem enviar nada: tudo nasce em `rascunho` e só vira fila
+   * quando você aprova.
+   */
   async function prepararFila() {
     if (!preview || preview.disponivel === 0) return;
     setPreparando(true);
     try {
       const data = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
       const nome = `${nichoLabel} — ${abordagemAtual.rotulo} — ${data}`;
-      const r = await fetch("/api/campanhas", {
+
+      const criada = await fetch("/api/campanhas/gerar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nome,
           leadIds: preview.leadIds,
-          usarIA: true,
           produto: abordagem || undefined,
           filtro: { segmento, abordagem },
         }),
       }).then((x) => x.json());
 
-      if (r.campanha?.id) {
-        await fetch("/api/campanhas", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: r.campanha.id, acao: "iniciar" }),
-        });
-      }
+      if (!criada.campanha?.id) throw new Error(criada.erro ?? "Falha ao criar a campanha");
 
-      setCampanhaPronta({ nicho: nichoLabel, abordagem: abordagemAtual.rotulo, quantidade: r.criadas ?? 0 });
-      const puladasPorFalhaIA = (r.pulados ?? []).filter((p: { motivo: string }) =>
-        p.motivo?.includes("IA"),
-      ).length;
+      /**
+       * Acabou o trabalho da aba: os leads estão na fila do servidor e a
+       * geração já pode andar sem ninguém aqui. O que vem depois é só
+       * acompanhamento — ver o `useEffect` de acompanhamento logo abaixo.
+       */
+      setCampanhaPronta({
+        nicho: nichoLabel,
+        abordagem: abordagemAtual.rotulo,
+        quantidade: 0,
+        campanhaId: criada.campanha.id,
+      });
       setAviso(
-        `✓ Fila preparada — ${r.criadas ?? 0} mensagem(ns) personalizada(s) por IA, pronta(s) para receber.` +
-          (puladasPorFalhaIA > 0 ? ` ${puladasPorFalhaIA} pulada(s) por falha ao gerar.` : ""),
+        `✓ ${criada.total} lead(s) na fila de geração. ` +
+          "Pode fechar esta aba — a geração continua no servidor.",
       );
       setSegmento("");
       setNichoEscolhido(false);
@@ -424,8 +467,94 @@ export default function Disparos() {
       setAbordagemEscolhida(false);
       setAmostras(null);
       await Promise.all([carregarTudo(), carregarPreview()]);
+    } catch (e) {
+      setAviso(e instanceof Error ? e.message : "Falha ao preparar a campanha.");
     } finally {
       setPreparando(false);
+    }
+  }
+
+  /** Campanha cuja geração ainda vale acompanhar. Null = nada a fazer aqui. */
+  const campanhaEmGeracao =
+    campanhaPronta && !campanhaPronta.aprovada ? campanhaPronta.campanhaId : null;
+
+  /**
+   * Acompanha a geração — e, de quebra, ACELERA enquanto a aba está aberta.
+   *
+   * A diferença para a versão anterior é o papel desta aba. Antes ela era o
+   * motor: o laço vivia aqui e fechar a página parava a geração no lead em
+   * que estivesse. Agora o trabalho está numa fila no banco, drenada pelo
+   * serviço local e pelo cron; este efeito só empurra um lote a mais porque
+   * você está olhando e é bom ver andar. Fechar a aba tira a aceleração, não
+   * a geração.
+   *
+   * Por isso ele pode morrer a qualquer momento sem consequência: cada PATCH
+   * é independente, e item reservado por uma chamada que sumiu volta sozinho
+   * para a fila depois do timeout.
+   */
+  useEffect(() => {
+    if (!campanhaEmGeracao) return;
+    let vivo = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const passo = async () => {
+      if (!vivo) return;
+      try {
+        const r = await fetch("/api/campanhas/gerar", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: campanhaEmGeracao, tamanhoLote: 3 }),
+        }).then((x) => x.json());
+        if (!vivo) return;
+
+        const estado: EstadoGeracao | undefined = r.estado;
+        if (estado) {
+          setCampanhaPronta((c) =>
+            c && c.campanhaId === campanhaEmGeracao
+              ? { ...c, estado, quantidade: estado.pronta }
+              : c,
+          );
+        }
+
+        // Fila zerada: para de pedir. Nada mais vai mudar sozinho.
+        if ((estado?.pendente ?? 0) + (estado?.processando ?? 0) === 0) return;
+
+        /**
+         * Com cota estourada o servidor já marcou hora para tentar de novo.
+         * Insistir de 1,5s em 1,5s só gastaria requisição para ouvir o mesmo
+         * "ainda não" — daí o minuto de espera.
+         */
+        timer = setTimeout(passo, r.pausadoPorCota ? 60_000 : 1_500);
+      } catch {
+        if (vivo) timer = setTimeout(passo, 15_000);
+      }
+    };
+
+    void passo();
+    return () => {
+      vivo = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [campanhaEmGeracao]);
+
+  /**
+   * Aprovar é o passo que transforma rascunho em fila — e é o ÚNICO ponto
+   * em que a campanha passa a poder sair. Um clique para o lote inteiro,
+   * não mensagem por mensagem.
+   */
+  async function aprovarCampanha(campanhaId: string) {
+    setOcupado(true);
+    try {
+      const r = await fetch("/api/campanhas", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: campanhaId, acao: "iniciar" }),
+      }).then((x) => x.json());
+      setAviso(r.erro ?? `${r.aprovadas ?? 0} mensagem(ns) aprovada(s) e na fila.`);
+      setCampanhaPronta((c) => (c ? { ...c, aprovada: !r.erro } : c));
+      await carregarTudo();
+    } finally {
+      setOcupado(false);
     }
   }
 
@@ -539,12 +668,30 @@ export default function Disparos() {
             <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">{painel.motivo}</p>
           )}
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button onClick={() => acaoWorker("desligar")} disabled={ocupado} className="btn-secundario">
-              ⏸ Pausar
-            </button>
-            <button onClick={pararAgora} disabled={ocupado} className="btn-perigo">
-              ⛔ Parar agora
+          {/**
+           * PARAR é o botão grande e não destrutivo: desliga o worker e
+           * mantém a fila inteira intacta, para retomar depois. Cancelar a
+           * fila é ação separada, menor e explícita — misturar as duas num
+           * botão só é como se perde uma campanha inteira num clique com
+           * pressa.
+           */}
+          <button
+            onClick={() => acaoWorker("desligar")}
+            disabled={ocupado}
+            className="btn-perigo mt-5 w-full !py-3.5 !text-[16px]"
+          >
+            ⛔ PARAR DISPAROS
+          </button>
+          <p className="mt-2 text-center text-[12px] text-[var(--texto-3)]">
+            Interrompe os envios e mantém a fila — dá para retomar de onde parou.
+          </p>
+          <div className="mt-3 text-center">
+            <button
+              onClick={pararAgora}
+              disabled={ocupado}
+              className="text-[12.5px] text-[var(--texto-3)] underline hover:text-[var(--vermelho)]"
+            >
+              Parar e cancelar a fila inteira
             </button>
           </div>
         </section>
@@ -687,18 +834,39 @@ export default function Disparos() {
                   <div className="space-y-3">
                     {amostras.map((a, i) => (
                       <div key={i} className="rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
-                        <p className="text-[12.5px] font-medium text-[var(--texto-2)]">
+                        <p className="text-[13px] font-semibold">
                           {a.nome}
-                          {a.cidade ? ` — ${a.cidade}` : ""}
+                          {a.cidade ? (
+                            <span className="font-normal text-[var(--texto-3)]"> — {a.cidade}</span>
+                          ) : null}
                         </p>
-                        <p className="mt-1 whitespace-pre-line text-[13.5px] leading-relaxed">
-                          {a.mensagem}
-                        </p>
+
+                        {a.erro ? (
+                          <p className="mt-1.5 text-[12.5px] text-[var(--vermelho)]">
+                            Falhou: {a.erro}
+                          </p>
+                        ) : (
+                          <>
+                            <dl className="mt-2 space-y-1 text-[12.5px]">
+                              <div className="flex gap-2">
+                                <dt className="shrink-0 text-[var(--texto-3)]">Oportunidade:</dt>
+                                <dd className="text-[var(--texto-2)]">{a.oportunidade}</dd>
+                              </div>
+                              <div className="flex gap-2">
+                                <dt className="shrink-0 text-[var(--texto-3)]">Solução:</dt>
+                                <dd className="font-medium text-[var(--azul)]">{a.solucao}</dd>
+                              </div>
+                            </dl>
+                            <p className="mt-2 whitespace-pre-line border-t border-[var(--linha)] pt-2 text-[13.5px] leading-relaxed">
+                              {a.mensagem}
+                            </p>
+                          </>
+                        )}
                       </div>
                     ))}
                     <p className="text-[12px] text-[var(--texto-3)]">
-                      Cada lead do lote recebe uma mensagem própria, gerada na hora de preparar a
-                      fila — estas 3 são só um exemplo do que a IA escreve.
+                      A IA analisa cada lead e escolhe a solução — sistema e automação vêm antes de
+                      site. Estes 3 são exemplo; ao aprovar, o lote inteiro é gerado um a um.
                     </p>
                   </div>
                 )}
@@ -710,13 +878,25 @@ export default function Disparos() {
                 )}
               </div>
 
+              {/**
+               * Aprovação é da CAMPANHA, não de mensagem por mensagem: um
+               * clique libera o lote inteiro. A revisão individual continua
+               * existindo lá embaixo, mas só para rascunho avulso criado
+               * fora deste fluxo.
+               */}
               <button
                 onClick={prepararFila}
                 disabled={preparando || preview.disponivel === 0}
                 className="btn-primario mt-5 w-full !py-3.5 !text-[16px]"
               >
-                {preparando ? "Gerando mensagens e preparando…" : "✓ PREPARAR FILA"}
+                {preparando
+                  ? "Enfileirando…"
+                  : `GERAR MENSAGENS (${preview.disponivel} leads)`}
               </button>
+              <p className="mt-2 text-center text-[12px] text-[var(--texto-3)]">
+                Os leads entram numa fila no servidor. A geração roda sozinha, uma chamada de IA
+                por lead — você pode fechar esta aba. Nada é enviado nesta etapa.
+              </p>
               {preview.disponivel === 0 && (
                 <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">
                   Nenhuma empresa disponível para esse nicho agora.
@@ -728,9 +908,15 @@ export default function Disparos() {
           {/* --- campanha pronta: iniciar --- */}
           {campanhaPronta && (
             <section className="cartao surgir mb-6 p-5">
-              <p className="text-[16px] font-semibold text-[var(--verde,var(--azul))]">
-                🟢 CAMPANHA PRONTA
-              </p>
+              {(() => {
+                const e = campanhaPronta.estado;
+                const faltam = (e?.pendente ?? 0) + (e?.processando ?? 0);
+                return (
+                  <p className="text-[16px] font-semibold text-[var(--verde,var(--azul))]">
+                    {faltam > 0 ? "⏳ GERANDO MENSAGENS" : "🟢 CAMPANHA PRONTA"}
+                  </p>
+                );
+              })()}
               <dl className="mt-3 space-y-2 text-[13.5px]">
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-[var(--texto-2)]">Nicho</dt>
@@ -747,12 +933,77 @@ export default function Disparos() {
                   </dd>
                 </div>
               </dl>
+              {campanhaPronta.estado && (
+                <div className="mt-3">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-[var(--superficie-2)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--azul)] transition-[width] duration-500"
+                      style={{
+                        width: `${
+                          campanhaPronta.estado.total
+                            ? Math.round(
+                                (campanhaPronta.estado.pronta / campanhaPronta.estado.total) * 100,
+                              )
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-2 text-[12px] tabular-nums text-[var(--texto-3)]">
+                    {campanhaPronta.estado.pronta} pronta(s) · {campanhaPronta.estado.pendente} na
+                    fila
+                    {campanhaPronta.estado.processando > 0 &&
+                      ` · ${campanhaPronta.estado.processando} gerando`}
+                    {campanhaPronta.estado.pulada > 0 &&
+                      ` · ${campanhaPronta.estado.pulada} pulado(s)`}
+                    {campanhaPronta.estado.erro > 0 && ` · ${campanhaPronta.estado.erro} com erro`}
+                  </p>
+                  {/**
+                   * Item adiado por cota tem hora marcada para voltar. Mostrar
+                   * isso é o que separa "está esperando" de "travou" — sem a
+                   * hora, uma fila parada por cota parece uma fila quebrada.
+                   */}
+                  {campanhaPronta.estado.proximaTentativaEm && (
+                    <p className="mt-1 text-[12px] text-[var(--texto-3)]">
+                      Cota do Gemini atingida. Volta a gerar às{" "}
+                      {new Date(campanhaPronta.estado.proximaTentativaEm).toLocaleTimeString(
+                        "pt-BR",
+                        { hour: "2-digit", minute: "2-digit" },
+                      )}
+                      . Nenhum lead foi perdido.
+                    </p>
+                  )}
+                  {campanhaPronta.estado.problemas.map((p) => (
+                    <p key={p.motivo} className="mt-1 text-[12px] text-[var(--texto-3)]">
+                      {p.quantos}× {p.motivo}
+                    </p>
+                  ))}
+                </div>
+              )}
+
               <p className="mt-3 rounded-[10px] bg-[var(--azul-fraco)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--azul)]">
-                Cada lead recebeu uma mensagem própria, gerada por IA — não é o mesmo texto
-                repetido.
+                Cada lead recebe uma mensagem própria, gerada por IA — não é o mesmo texto
+                repetido. A fila roda no servidor: fechar esta aba não interrompe nada.
               </p>
 
-              {filaPronta && (
+              {!campanhaPronta.aprovada && (
+                <>
+                  <button
+                    onClick={() => aprovarCampanha(campanhaPronta.campanhaId)}
+                    disabled={ocupado || campanhaPronta.quantidade === 0}
+                    className="btn-primario mt-4 w-full !py-3.5 !text-[16px]"
+                  >
+                    ✓ APROVAR CAMPANHA ({campanhaPronta.quantidade} mensagens)
+                  </button>
+                  <p className="mt-2 text-center text-[12px] text-[var(--texto-3)]">
+                    {(campanhaPronta.estado?.pendente ?? 0) > 0
+                      ? "Dá para aprovar o que já ficou pronto — o resto da fila continua gerando e entra depois."
+                      : "As mensagens estão em rascunho. Aprovar move todas para a fila de uma vez — ainda sem enviar."}
+                  </p>
+                </>
+              )}
+
+              {campanhaPronta.aprovada && filaPronta && (
                 <>
                   <button
                     onClick={pedirConfirmacaoIniciar}
@@ -830,6 +1081,32 @@ export default function Disparos() {
         <p className="surgir mb-6 rounded-[10px] bg-[var(--azul-fraco)] px-4 py-2.5 text-[14px] text-[var(--azul)]">
           {aviso}
         </p>
+      )}
+
+      {/* --- estados da fila: onde está cada mensagem, sem abrir o banco --- */}
+      {painel.estados && (
+        <section className="cartao surgir mb-4 p-5">
+          <p className="mb-3 text-[14px] font-semibold">Estados da fila</p>
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+            {(
+              [
+                ["Rascunho", "rascunho"],
+                ["Aprovada", "aprovada"],
+                ["Aguardando", "na-fila"],
+                ["Enviada", "enviada"],
+                ["Erro", "erro"],
+                ["Cancelada", "cancelada"],
+              ] as [string, string][]
+            ).map(([rotulo, chave]) => (
+              <div key={chave}>
+                <p className="text-[12px] text-[var(--texto-2)]">{rotulo}</p>
+                <p className="mt-0.5 text-[17px] font-semibold tabular-nums">
+                  {painel.estados?.[chave] ?? 0}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* --- resumo do dia --- */}

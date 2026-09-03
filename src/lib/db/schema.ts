@@ -707,3 +707,102 @@ export const ETAPAS: { valor: Etapa; rotulo: string }[] = [
 export function ehEtapaDoFunil(e: Etapa): e is EtapaFunil {
   return ETAPAS_FUNIL.some((x) => x.valor === e);
 }
+
+/**
+ * Ciclo de vida de UM item da fila de geração por IA.
+ *
+ * `pronta` significa "a mensagem existe no banco", não "foi enviada" — quem
+ * envia é o worker da bridge, muito depois, e só sobre mensagem aprovada.
+ */
+export const STATUS_GERACAO = [
+  "pendente",
+  "processando",
+  "pronta",
+  "pulada",
+  "erro",
+] as const;
+export type StatusGeracao = (typeof STATUS_GERACAO)[number];
+
+/**
+ * Fila PERSISTENTE de geração de mensagem por IA — um item por lead.
+ *
+ * POR QUE UMA TABELA, E NÃO UM CAMPO JSON NA CAMPANHA
+ *
+ * A versão anterior guardava a lista de pendentes dentro de `campanhas.filtro`
+ * e quem processava era um laço no NAVEGADOR, pedindo lote atrás de lote.
+ * Funcionava enquanto a aba estivesse aberta — ou seja, não funcionava. Fechar
+ * o notebook parava a geração, e geração que só anda enquanto você olha não é
+ * automação, é digitação assistida.
+ *
+ * Com tabela, cada lead vira uma LINHA com estado próprio, e a linha é a
+ * unidade de trabalho: dá para reservar atomicamente (dois processos nunca
+ * pegam o mesmo lead), dá para adiar um item sem travar os outros, e dá para
+ * saber o que aconteceu com cada um sem depender de quem estava com a tela
+ * aberta na hora.
+ *
+ * DUAS CONTAGENS SEPARADAS, DE PROPÓSITO
+ *
+ * `tentativas` conta FALHA DE VERDADE (modelo devolveu lixo, JSON quebrado,
+ * rede caiu) e tem teto: no terceiro, o item vira `erro` e para de tentar.
+ * É o que impede retry infinito.
+ *
+ * `esperas` conta ADIAMENTO POR COTA (429), que não é culpa do lead nenhum —
+ * é o relógio. Adiamento NÃO queima tentativa e NUNCA vira `erro`: o item
+ * volta para `pendente` com `proximaTentativaEm` no futuro e é gerado quando a
+ * cota voltar. Misturar as duas coisas era o que fazia uma campanha de 40
+ * leads perder 35 num dia de cota apertada.
+ */
+export const geracaoFila = pgTable(
+  "geracao_fila",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    campanhaId: uuid("campanha_id")
+      .notNull()
+      .references(() => campanhas.id, { onDelete: "cascade" }),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+
+    status: text("status").$type<StatusGeracao>().notNull().default("pendente"),
+    /** Maior primeiro — mesma pontuação do lead que ordena a fila de envio. */
+    prioridade: integer("prioridade").notNull().default(0),
+
+    /** Falhas reais. Teto em GERACAO_MAX_TENTATIVAS; depois vira `erro`. */
+    tentativas: integer("tentativas").notNull().default(0),
+    /** Adiamentos por cota do Gemini. Não têm teto e não queimam o lead. */
+    esperas: integer("esperas").notNull().default(0),
+
+    /** Antes disto, o item nem é olhado. É como o backoff de cota acontece. */
+    proximaTentativaEm: timestamp("proxima_tentativa_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /**
+     * Quando ESTE item foi reservado. Distingue "alguém está gerando agora"
+     * (recente) de "o processo morreu no meio" (antigo) — a recuperação de
+     * item preso usa exatamente isto.
+     */
+    processandoDesde: timestamp("processando_desde", { withTimezone: true }),
+
+    /** A mensagem que saiu daqui. Preenchido quando o item vira `pronta`. */
+    mensagemId: uuid("mensagem_id").references(() => mensagens.id, { onDelete: "set null" }),
+    /** Solução que a IA escolheu — para a tela explicar a abordagem. */
+    solucao: text("solucao"),
+    /** Último motivo de falha ou de pulo, em texto legível. */
+    erro: text("erro"),
+
+    criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * A trava mais importante da tabela: um lead entra UMA vez por campanha.
+     *
+     * É o que faz "iniciar a mesma campanha duas vezes" ser inofensivo — o
+     * segundo enfileiramento colide e não cria nada — sem depender de o código
+     * lembrar de checar antes.
+     */
+    uniqueIndex("geracao_fila_campanha_lead_idx").on(t.campanhaId, t.leadId),
+    index("geracao_fila_proxima_idx").on(t.status, t.proximaTentativaEm),
+    index("geracao_fila_campanha_idx").on(t.campanhaId),
+  ],
+);

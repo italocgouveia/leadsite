@@ -24,13 +24,28 @@ const NOMINATIM = "https://nominatim.openstreetmap.org/search";
  * (peguei os dois testando). Os espelhos são independentes — tentamos em ordem.
  */
 const ESPELHOS_OVERPASS = [
-  // Ordem por confiabilidade medida em 19/08/2026: só o primeiro respondeu 200;
-  // kumi devolveu 502 em 72s, private.coffee 500 em 57s, mail.ru 504 em 38s.
+  // Ordem por confiabilidade REMEDIDA em 02/09/2026, com a mesma consulta nos
+  // quatro: overpass-api.de 200 em 4,8s · mail.ru 200 em 4,7s · kumi e
+  // private.coffee penduraram (sem resposta até 40s). Os dois saudáveis vêm
+  // primeiro: na medição de 19/08 o mail.ru estava ruim e ficou atrás do kumi,
+  // e isso passou a custar os 28s de timeout do kumi antes de chegar num
+  // espelho que responde.
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
 ];
+
+/**
+ * NÃO acrescente espelho nacional aqui (overpass.osm.ch, overpass.osm.jp e
+ * afins). Testado em 02/09/2026: o osm.ch responde rápido e com HTTP 200,
+ * mas só carrega o extrato da Suíça — a mesma consulta em Uberlândia volta
+ * `elements: []` nele e cheia no overpass-api.de. Como `consultarOverpass`
+ * trata `res.ok` como sucesso e devolve na hora, um espelho regional no topo
+ * da lista faria toda busca no Brasil terminar em "nenhum lead encontrado",
+ * sem erro nenhum para denunciar o motivo. Só entra espelho com planeta
+ * inteiro, e só depois de conferir uma consulta brasileira de verdade.
+ */
 
 const USER_AGENT = "LeadSite/1.0 (ferramenta pessoal de prospeccao)";
 
@@ -63,6 +78,21 @@ export type LugarOsm = {
   extras?: Record<string, string>;
   lat?: number;
   lng?: number;
+
+  /**
+   * Campos que o OSM NUNCA preenche — existem para a busca pelo Google
+   * Places usar a mesma estrutura e o mesmo `buscarEGravar`, em vez de
+   * duplicar todo o caminho auditar→pontuar→gravar. Ver
+   * `lib/places/adaptador.ts`. Com OSM ficam `undefined`, e o pipeline grava
+   * `null` como sempre gravou.
+   */
+  nota?: number;
+  avaliacoes?: number;
+  fotos?: string[];
+  /** Id da fonte externa, quando não veio do OSM (ex.: `places:ChIJ...`). */
+  idExterno?: string;
+  /** URL do mapa quando a fonte já entrega pronta (Places). */
+  mapsUrl?: string;
 };
 
 export type BuscaOsmParams = {

@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { db, leads, mensagens, campanhas, configuracoes, conversas, type Lead } from "@/lib/db";
+import { db, leads, mensagens, campanhas, configuracoes, conversas, eventos, type Lead } from "@/lib/db";
 import { estadoIntegracao, lerConfigProvedor } from "@/lib/integracao";
 import { provedorDe } from "@/lib/providers";
 import { resolverSaudacao } from "@/lib/saudacao";
@@ -183,7 +183,81 @@ export type Bloqueio =
 /**
  * Pode mandar AGORA? Checa as travas globais, na ordem de custo.
  */
+/**
+ * Quantas falhas SEGUIDAS param a automação sozinha.
+ *
+ * Erro isolado é normal — número sem WhatsApp, lead que apagou a conta. O
+ * que não é normal é errar de novo e de novo: isso é sintoma de sessão
+ * caída, número bloqueado ou provedor fora do ar, e cada tentativa a mais
+ * nesse estado é um sinal ruim a mais para o WhatsApp. Parar em 5 é bem
+ * antes de virar padrão suspeito.
+ */
+const ERROS_SEGUIDOS_PARA_PARAR = 5;
+
+/**
+ * As últimas mensagens que TERMINARAM foram todas erro?
+ *
+ * Olha só o estado final (enviada/entregue/respondida/erro) — `aprovada` e
+ * `na-fila` ainda não terminaram e não contam.
+ */
+async function sequenciaDeErros(): Promise<{ parou: boolean; quantos: number }> {
+  const ultimas = await db
+    .select({ status: mensagens.status })
+    .from(mensagens)
+    .where(inArrayStatusTerminal())
+    .orderBy(desc(mensagens.atualizadoEm))
+    .limit(ERROS_SEGUIDOS_PARA_PARAR);
+
+  const todosErro =
+    ultimas.length === ERROS_SEGUIDOS_PARA_PARAR && ultimas.every((m) => m.status === "erro");
+
+  return { parou: todosErro, quantos: ultimas.filter((m) => m.status === "erro").length };
+}
+
+function inArrayStatusTerminal() {
+  return or(
+    eq(mensagens.status, "enviada"),
+    eq(mensagens.status, "entregue"),
+    eq(mensagens.status, "respondida"),
+    eq(mensagens.status, "erro"),
+  );
+}
+
+/** Desliga a automação e deixa registrado o porquê, uma vez só. */
+async function pararPorErros(quantos: number) {
+  const agora = new Date();
+  const [cfgAtual] = await db.select().from(configuracoes).limit(1);
+
+  // Só grava evento na PRIMEIRA vez — senão o log enche a cada consulta.
+  if (cfgAtual?.automacaoAtiva) {
+    await db
+      .update(configuracoes)
+      .set({ automacaoAtiva: false, atualizadoEm: agora })
+      .where(eq(configuracoes.id, cfgAtual.id));
+
+    await db.insert(eventos).values({
+      tipo: "automacao.parada-por-erros",
+      descricao: `Automação pausada sozinha: ${quantos} envios seguidos deram erro. Confira o WhatsApp e a bridge antes de retomar.`,
+    });
+  }
+}
+
 export async function podeEnviarAgora(cfg: Config): Promise<Bloqueio> {
+  /**
+   * Vem ANTES da checagem de "pausada" de propósito: depois de parar
+   * sozinha, `automacaoAtiva` fica falso e o motivo genérico ("Automação
+   * pausada.") esconderia o que realmente aconteceu. Enquanto a sequência
+   * de erros existir, o painel continua dizendo o motivo de verdade.
+   */
+  const erros = await sequenciaDeErros();
+  if (erros.parou) {
+    await pararPorErros(erros.quantos);
+    return {
+      pode: false,
+      motivo: `Parada automática: os últimos ${ERROS_SEGUIDOS_PARA_PARAR} envios deram erro. Verifique a conexão do WhatsApp antes de retomar.`,
+    };
+  }
+
   if (!cfg.automacaoAtiva) {
     return { pode: false, motivo: "Automação pausada." };
   }

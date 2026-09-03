@@ -124,6 +124,27 @@ export async function GET() {
     produto: r.produto,
   }));
 
+  /**
+   * Contagem por estado da fila inteira — é o que responde "onde está cada
+   * mensagem" sem ter que abrir o banco. Uma consulta agrupada, não seis.
+   */
+  const porEstado = await db
+    .select({ status: mensagens.status, n: sql<number>`count(*)::int` })
+    .from(mensagens)
+    .groupBy(mensagens.status);
+
+  const estados = {
+    rascunho: 0,
+    aprovada: 0,
+    "na-fila": 0,
+    enviada: 0,
+    entregue: 0,
+    respondida: 0,
+    erro: 0,
+    cancelada: 0,
+  } as Record<string, number>;
+  for (const l of porEstado) estados[l.status] = l.n;
+
   const statusWorker = calcularStatusWorker({
     bridgeAlcancavel: bridge.alcancavel,
     filaWorkerAtivo: bridge.alcancavel ? bridge.filaWorkerAtivo : null,
@@ -138,6 +159,7 @@ export async function GET() {
     // novo configurado, e fazia esta tela mentir "configurado" à toa.
     provedorConfigurado: cfgProv !== null,
     aguardando: aguardando.length,
+    estados,
     enviadasHoje: hoje,
     respondidasHoje,
     errosHoje,

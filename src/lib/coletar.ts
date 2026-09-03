@@ -50,16 +50,27 @@ export async function buscarEGravar(
       // um link de WhatsApp que abre em "número inexistente".
       const telefone = formatarTelefone(lugar.telefone);
 
+      /**
+       * Nota e avaliações só existem quando a fonte é o Google Places — o
+       * OSM não tem avaliação nenhuma e deixa os dois `undefined`. Passar o
+       * valor real aqui importa: a nota é o sinal mais forte da pontuação
+       * (ver lib/pontuacao.ts) e é a ÚNICA prova social que a mensagem de
+       * abordagem pode citar sem inventar (ver lib/gen/mensagem-prospeccao.ts).
+       */
+      const nota = lugar.nota ?? null;
+      const avaliacoes = lugar.avaliacoes ?? null;
+
       const { score, temperatura } = calcularScore({
         status: auditoria.status,
-        nota: null, // OSM não tem avaliação
-        avaliacoes: null,
+        nota,
+        avaliacoes,
         temTelefone: Boolean(telefone),
         cadastroCompleto: Boolean(lugar.endereco && lugar.categoria),
       });
 
       return {
-        placeId: `osm:${lugar.osmId}`,
+        // `idExterno` vem preenchido pelo adaptador do Places; sem ele, OSM.
+        placeId: lugar.idExterno ?? `osm:${lugar.osmId}`,
         nome: lugar.nome,
         categoria: lugar.categoria ?? params.nicho,
         endereco: lugar.endereco ?? null,
@@ -79,12 +90,13 @@ export async function buscarEGravar(
         // Horário vindo do OSM já é dado real — alimenta a seção do site.
         horarios: lugar.horarios ?? null,
         dadosOsm: lugar.extras ?? {},
-        nota: null,
-        avaliacoes: null,
+        nota,
+        avaliacoes,
         lat: lugar.lat ?? null,
         lng: lugar.lng ?? null,
-        mapsUrl: linkMapa(lugar) ?? null,
-        fotos: [] as string[],
+        // O Places já entrega a URL do mapa pronta; o OSM a gente monta.
+        mapsUrl: lugar.mapsUrl ?? linkMapa(lugar) ?? null,
+        fotos: lugar.fotos ?? ([] as string[]),
         statusSite: auditoria.status,
         score,
         temperatura,

@@ -7,6 +7,7 @@ import { montarPropostaSistema, avaliarSistema } from "@/lib/sistemas";
 import { avaliar } from "@/lib/oportunidade";
 import { pontuar } from "@/lib/pontuacao";
 import { gerarMensagemProspeccao } from "@/lib/gen/mensagem-prospeccao";
+import { enfileirar, processarLote, estadoGeracao } from "@/lib/gen/fila-geracao";
 
 /**
  * Campanhas: montar, iniciar, pausar, acompanhar.
@@ -100,14 +101,24 @@ export async function montarCampanha(params: {
 
     let texto: string | null;
     let origem: "modelo" | "ia" = "modelo";
+    /** Solução escolhida pela IA; vira o `produto` da mensagem. */
+    let solucaoEscolhida: string | null = null;
 
     if (params.mensagem) {
       texto = params.mensagem;
     } else if (params.usarIA) {
       try {
-        texto = await gerarMensagemProspeccao(lead, { produto: params.produto });
+        const analise = await gerarMensagemProspeccao(lead, { produto: params.produto });
+        texto = analise.mensagem;
+        solucaoEscolhida = analise.solucao;
         origem = "ia";
       } catch (e) {
+        /**
+         * Lead pulado volta na próxima campanha; mensagem quebrada sai no
+         * WhatsApp de um estranho. Por isso falha aqui NÃO vira fallback
+         * para o motor determinístico: ele escreveria sobre site, que é
+         * exatamente o que esta campanha não quer oferecer.
+         */
         pulados.push({
           nome: lead.nome,
           motivo: `Falha ao gerar mensagem por IA: ${e instanceof Error ? e.message : "erro desconhecido"}`,
@@ -127,8 +138,16 @@ export async function montarCampanha(params: {
       leadId: lead.id,
       campanhaId: campanha.id,
       texto,
-      // Mensagem literal ou por IA não é "site"/"chatbot"/"sistema" fixo do lead.
-      produto: params.produto ?? (params.mensagem || params.usarIA ? null : avaliar(lead).produto),
+      /**
+       * Com IA, guarda a SOLUÇÃO que ela escolheu (ex.: "sistema-sob-medida")
+       * — é o que a tela mostra depois para explicar a abordagem. Sem IA,
+       * mantém o comportamento antigo: produto forçado, ou o palpite do
+       * motor determinístico.
+       */
+      produto:
+        solucaoEscolhida ??
+        params.produto ??
+        (params.mensagem || params.usarIA ? null : avaliar(lead).produto),
       origem,
       status: "rascunho",
       rodada: 0,
@@ -145,6 +164,75 @@ export async function montarCampanha(params: {
   );
 
   return { campanha, criadas, pulados };
+}
+
+/**
+ * Cria a campanha VAZIA e ENFILEIRA os leads para geração por IA.
+ *
+ * Existe porque gerar por IA leva ~15–30s POR LEAD: um lote de 40 não cabe em
+ * requisição HTTP nenhuma. Aqui a criação responde na hora e o trabalho fica
+ * numa fila persistente (tabela `geracao_fila`), processada por quem estiver
+ * disponível — o serviço local, o cron, ou a própria tela.
+ *
+ * A versão anterior guardava os pendentes dentro de `campanhas.filtro` e
+ * dependia de um laço no NAVEGADOR para andar. Fechar a aba parava a geração.
+ * Agora a aba não participa: ela só olha.
+ */
+export async function criarCampanhaParaGerar(params: {
+  nome: string;
+  leadIds: string[];
+  produto?: "site" | "chatbot" | "sistema";
+  filtro?: Record<string, unknown>;
+}) {
+  const [campanha] = await db
+    .insert(campanhas)
+    .values({
+      nome: params.nome,
+      status: "rascunho",
+      produto: params.produto ?? null,
+      filtro: params.filtro ?? null,
+    })
+    .returning();
+
+  const alvos = await db.select().from(leads).where(inArray(leads.id, params.leadIds));
+  const { enfileirados } = await enfileirar(campanha.id, ordenarPorPontuacao(alvos));
+
+  await registrar("campanha.enfileirada", `"${campanha.nome}": ${enfileirados} leads na fila`, {
+    campanhaId: campanha.id,
+    dados: { enfileirados },
+  });
+
+  return { campanha, total: enfileirados };
+}
+
+/**
+ * Processa um lote da campanha. Mantida como atalho para a tela: quem faz o
+ * trabalho de verdade é `processarLote` em lib/gen/fila-geracao.
+ *
+ * Chamar isto é OPCIONAL — a fila anda sem ninguém pedir. Serve para acelerar
+ * enquanto você está com /disparos aberto, e para o cron cutucar.
+ */
+export async function gerarPendentes(campanhaId: string, tamanhoLote = 3) {
+  const [c] = await db.select().from(campanhas).where(eq(campanhas.id, campanhaId)).limit(1);
+  if (!c) return { ok: false as const, erro: "Campanha não encontrada." };
+
+  const lote = await processarLote({ campanhaId, max: tamanhoLote, orcamentoMs: 90_000 });
+  const estado = await estadoGeracao(campanhaId);
+
+  return {
+    ok: true as const,
+    restantes: lote.restantes,
+    geradas: estado.pronta,
+    pulados: estado.problemas.map((p) => ({ nome: `${p.quantos} lead(s)`, motivo: p.motivo })),
+    /**
+     * Sinaliza para quem chama PARAR de pedir lote agora. Sem isto, o laço da
+     * tela giraria pedindo lote atrás de lote e recebendo o mesmo erro de
+     * cota — e como item adiado volta para `pendente`, `restantes` nunca
+     * zeraria: laço infinito.
+     */
+    pausadoPorCota: lote.pausadoPorCota,
+    estado,
+  };
 }
 
 /** Qual motor escreve a mensagem, conforme o produto escolhido. */

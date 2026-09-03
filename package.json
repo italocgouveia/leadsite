@@ -34,7 +34,10 @@
     "test:normalizacao-telefone": "tsx src/lib/__testes__/normalizacao-telefone.test-manual.ts",
     "test:horario-permitido": "tsx src/lib/__testes__/horario-permitido.test-manual.ts",
     "test:status-worker": "tsx src/lib/__testes__/status-worker.test-manual.ts",
-    "test:retry-temporario": "tsx src/lib/__testes__/retry-temporario.test-manual.ts"
+    "test:retry-temporario": "tsx src/lib/__testes__/retry-temporario.test-manual.ts",
+    "geracao": "tsx src/scripts/worker-geracao.ts",
+    "test:geracao": "tsx src/lib/__testes__/geracao.test-manual.ts",
+    "test:geracao-worker": "tsx src/lib/__testes__/geracao-worker.test-manual.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

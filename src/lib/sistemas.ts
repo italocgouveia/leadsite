@@ -29,7 +29,11 @@ export type Modulo =
   | "financeiro"
   | "comissao"
   | "equipe"
-  | "orcamento";
+  | "orcamento"
+  | "pedidos"
+  | "cardapio"
+  | "reservas"
+  | "fidelidade";
 
 export type EncaixeSistema = {
   /** Este ramo tem operação que um sistema organiza? */
@@ -139,6 +143,45 @@ const PERFIS: Record<string, Perfil> = {
     sistema: "Sistema de matrículas e mensalidades",
     modulos: ["clientes", "financeiro", "agendamento", "equipe"],
     dor: "controlar quem está com mensalidade atrasada numa planilha",
+  },
+
+  // --- alimentação: o pedido é a operação ---
+  restaurant: {
+    sistema: "Sistema de pedidos e cardápio digital",
+    modulos: ["pedidos", "cardapio", "clientes", "financeiro", "fidelidade"],
+    dor: "anotar pedido no papel e repetir o cardápio no WhatsApp o dia inteiro",
+  },
+  fast_food: {
+    sistema: "Sistema de pedidos e cardápio digital",
+    modulos: ["pedidos", "cardapio", "financeiro"],
+    dor: "anotar pedido de delivery no caderno e conferir o caixa no fim do dia na mão",
+  },
+  pizzaria: {
+    sistema: "Sistema de pedidos para delivery",
+    modulos: ["pedidos", "cardapio", "clientes", "financeiro"],
+    dor: "anotar endereço de entrega no papel e perder o histórico do cliente que repete",
+  },
+  bakery: {
+    sistema: "Sistema de encomendas e balcão",
+    modulos: ["pedidos", "clientes", "financeiro", "estoque"],
+    dor: "controlar encomenda de bolo em caderno e esquecer quem já pagou sinal",
+  },
+
+  // --- hospedagem: a reserva é a operação ---
+  guest_house: {
+    sistema: "Sistema de reservas para pousada",
+    modulos: ["reservas", "clientes", "financeiro", "historico"],
+    dor: "controlar quais quartos estão livres numa planilha e confirmar reserva uma a uma no WhatsApp",
+  },
+  hotel: {
+    sistema: "Sistema de reservas e hospedagem",
+    modulos: ["reservas", "clientes", "financeiro", "historico", "equipe"],
+    dor: "cruzar disponibilidade de quarto entre planilha e site de reserva na mão",
+  },
+  chalet: {
+    sistema: "Sistema de reservas para chalés",
+    modulos: ["reservas", "clientes", "financeiro"],
+    dor: "confirmar disponibilidade e sinal de reserva um por um pelo WhatsApp",
   },
 };
 
@@ -266,6 +309,10 @@ const ROTULO_MODULO: Record<Modulo, string> = {
   comissao: "Comissão",
   equipe: "Equipe",
   orcamento: "Orçamento",
+  pedidos: "Pedidos",
+  cardapio: "Cardápio digital",
+  reservas: "Reservas",
+  fidelidade: "Fidelização",
 };
 
 export function modulosLegiveis(modulos: Modulo[]): string {

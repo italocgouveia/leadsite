@@ -39,16 +39,36 @@ export async function GET(request: Request) {
   const porId = new Map(alvos.map((l) => [l.id, l]));
   const ordenados = idsAmostra.map((id) => porId.get(id)).filter((l): l is NonNullable<typeof l> => Boolean(l));
 
-  const amostras: { nome: string; cidade: string | null; mensagem: string }[] = [];
+  /**
+   * Devolve o RACIOCÍNIO junto, não só o texto: sem ver a oportunidade e a
+   * solução escolhida, não dá para saber se a IA analisou o lead ou só
+   * escreveu bonito. `erro` separado do resto para a tela mostrar a falha
+   * como falha, em vez de fingir que é uma mensagem.
+   */
+  const amostras: {
+    nome: string;
+    cidade: string | null;
+    oportunidade?: string;
+    solucao?: string;
+    mensagem?: string;
+    erro?: string;
+  }[] = [];
+
   for (const lead of ordenados) {
     try {
-      const mensagem = await gerarMensagemProspeccao(lead, { produto });
-      amostras.push({ nome: lead.nome, cidade: lead.cidade, mensagem });
+      const a = await gerarMensagemProspeccao(lead, { produto });
+      amostras.push({
+        nome: lead.nome,
+        cidade: lead.cidade,
+        oportunidade: a.oportunidade,
+        solucao: a.solucaoRotulo,
+        mensagem: a.mensagem,
+      });
     } catch (e) {
       amostras.push({
         nome: lead.nome,
         cidade: lead.cidade,
-        mensagem: `(falha ao gerar: ${e instanceof Error ? e.message : "erro desconhecido"})`,
+        erro: e instanceof Error ? e.message : "erro desconhecido",
       });
     }
   }
