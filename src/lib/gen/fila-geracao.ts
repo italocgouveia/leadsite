@@ -194,6 +194,40 @@ export async function processarItem(
   item: typeof geracaoFila.$inferSelect,
   gerar: Gerador = gerarMensagemProspeccao,
 ): Promise<ResultadoItem> {
+  /**
+   * Rede de segurança em volta de TUDO que acontece depois da reserva.
+   *
+   * O item já está em `processando` quando esta função começa. Qualquer erro
+   * daqui em diante que escape sem tratar deixa ele preso nesse estado — e
+   * `processando` é o único estado que ninguém revisita: `reservarItem` só
+   * olha `pendente`, e `recuperarPresos` só age depois de 5 minutos. Uma
+   * falha de rede ao ler a config (que acontece, o banco é HTTP) custava
+   * cinco minutos de lead parado.
+   *
+   * O `catch` principal lá embaixo cobre a geração em si. Este cobre o resto:
+   * as leituras de lead, config e campanha, que ficam fora dele.
+   */
+  try {
+    return await gerarItem(item, gerar);
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : "erro inesperado";
+    await db
+      .update(geracaoFila)
+      .set({
+        status: "pendente",
+        processandoDesde: null,
+        erro: `Falha inesperada, item devolvido à fila: ${motivo}`,
+        atualizadoEm: new Date(),
+      })
+      .where(eq(geracaoFila.id, item.id));
+    return { fim: "adiada", leadId: item.leadId, motivo };
+  }
+}
+
+async function gerarItem(
+  item: typeof geracaoFila.$inferSelect,
+  gerar: Gerador,
+): Promise<ResultadoItem> {
   const agora = new Date();
 
   const [jaTem] = await db
@@ -235,33 +269,36 @@ export async function processarItem(
     });
 
     /**
-     * INSERT ... SELECT ... WHERE NOT EXISTS, e não um `select` antes do
-     * `insert`.
+     * `ON CONFLICT DO NOTHING`, apoiado no índice único parcial
+     * `mensagens_viva_por_lead_idx` — uma mensagem VIVA (rascunho, aprovada
+     * ou na-fila) por (campanha, lead).
      *
-     * A checagem lá em cima ("já tem mensagem?") resolve o caso comum, mas é
-     * ler-depois-escrever: entre a leitura e a escrita cabe outro processo.
-     * E existe um caminho real para isso acontecer — nada teórico: uma chamada
-     * de IA lenta passa dos 5 minutos, `recuperarPresos` devolve o item para a
-     * fila achando que o processo morreu, outro worker gera e salva, e então o
-     * primeiro processo (que estava só lento, não morto) volta à vida e insere
-     * a SUA versão. Resultado: duas mensagens para a mesma pessoa, na mesma
-     * campanha — que na ponta são dois WhatsApp para o mesmo número.
+     * POR QUE PRECISA DE ÍNDICE, E NÃO SÓ DE UMA CHECAGEM
      *
-     * Um statement único resolve porque o Postgres avalia o NOT EXISTS e grava
-     * na mesma operação: o segundo a chegar insere zero linhas. Fica no SQL de
-     * propósito — não dá para escrever isso com o insert do Drizzle, e um
-     * índice único em (campanha_id, lead_id) não serve aqui porque há um par
-     * legado no banco com 8 mensagens, e criar o índice exigiria mexer em dado
-     * real de campanha antiga.
+     * A versão anterior fazia `INSERT ... WHERE NOT EXISTS` achando que um
+     * statement único bastava. Não basta: em READ COMMITTED os dois processos
+     * avaliam o NOT EXISTS antes de qualquer um comitar, e os dois inserem.
+     * O teste de concorrência pegou isso em 2 de 4 execuções — duas mensagens
+     * para a mesma pessoa, que na ponta são dois WhatsApp para o mesmo número.
+     * Só uma restrição no banco resolve de verdade.
+     *
+     * O índice é PARCIAL de propósito. Um único total em (campanha_id,
+     * lead_id) recusaria dado real e legítimo: há uma campanha antiga com 6
+     * mensagens `respondida` do mesmo lead, que é uma conversa, não uma
+     * duplicata. Restringir aos estados vivos protege exatamente o que precisa
+     * ser protegido — a fila de saída — sem tocar no histórico.
+     *
+     * O caminho que dispara isto é real, não teórico: uma chamada de IA lenta
+     * passa dos 5 minutos, `recuperarPresos` devolve o item para a fila
+     * achando que o processo morreu, outro worker gera e salva, e então o
+     * primeiro processo (que estava só lento, não morto) volta e tenta
+     * inserir a sua versão.
      */
     const gravado = await db.execute(sql`
       INSERT INTO mensagens (lead_id, campanha_id, texto, produto, origem, status, rodada, prioridade)
-      SELECT ${lead.id}::uuid, ${item.campanhaId}::uuid, ${analise.mensagem}, ${analise.solucao},
-             'ia', 'rascunho', 0, ${item.prioridade}
-      WHERE NOT EXISTS (
-        SELECT 1 FROM mensagens
-        WHERE campanha_id = ${item.campanhaId}::uuid AND lead_id = ${lead.id}::uuid
-      )
+      VALUES (${lead.id}::uuid, ${item.campanhaId}::uuid, ${analise.mensagem}, ${analise.solucao},
+              'ia', 'rascunho', 0, ${item.prioridade})
+      ON CONFLICT DO NOTHING
       RETURNING id
     `);
 

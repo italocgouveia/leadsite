@@ -98,8 +98,16 @@ async function main() {
   if (msgs.some((m) => m.produto === "site")) problemas.push("site foi escolhido como solução");
   if (new Set(msgs.map((m) => m.texto)).size !== msgs.length)
     problemas.push("mensagens repetidas entre leads");
-  if (depois.pronta + depois.pendente + depois.pulada + depois.erro !== antes.total)
-    problemas.push("lead sumiu da fila");
+  /**
+   * `processando` entra na conta: é um estado legítimo e transitório — o
+   * worker de serviço, que roda em paralelo a este teste, pode estar com um
+   * item reservado neste exato instante. Deixá-lo de fora fazia o teste
+   * acusar "lead sumiu da fila" quando nada tinha sumido.
+   */
+  const contabilizados =
+    depois.pronta + depois.pendente + depois.processando + depois.pulada + depois.erro;
+  if (contabilizados !== antes.total)
+    problemas.push(`lead sumiu da fila (${contabilizados} de ${antes.total})`);
 
   console.log("\n=== veredito ===");
   if (depois.pronta > 0) {

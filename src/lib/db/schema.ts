@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -361,6 +362,22 @@ export const mensagens = pgTable(
     index("mensagens_lead_idx").on(t.leadId),
     index("mensagens_status_idx").on(t.status),
     index("mensagens_enviada_idx").on(t.enviadaEm),
+    /**
+     * No máximo UMA mensagem viva por (campanha, lead).
+     *
+     * "Viva" = ainda pode sair: rascunho, aprovada ou na-fila. É a única
+     * garantia que segura duas gerações simultâneas do mesmo lead — checar
+     * antes de inserir não segura, porque em READ COMMITTED os dois processos
+     * leem "não existe" antes de qualquer um gravar. Sem esta linha, o mesmo
+     * número recebia dois WhatsApp.
+     *
+     * PARCIAL de propósito, e não único total: existe campanha antiga com
+     * várias mensagens `respondida` do mesmo lead, que é uma conversa e não
+     * uma duplicata. Protege a fila de saída sem recusar histórico.
+     */
+    uniqueIndex("mensagens_viva_por_lead_idx")
+      .on(t.campanhaId, t.leadId)
+      .where(sql`${t.campanhaId} is not null and ${t.status} in ('rascunho','aprovada','na-fila')`),
   ],
 );
 

@@ -1,6 +1,9 @@
 import { loadEnvConfig } from "@next/env";
 loadEnvConfig(process.cwd());
 
+import { createServer } from "node:http";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { processarLote, estadoGeracao } from "@/lib/gen/fila-geracao";
 
 /**
@@ -35,12 +38,88 @@ const INTERVALO_OCIOSO_MS = 30_000;
 const INTERVALO_COTA_MS = 5 * 60 * 1000;
 const LOTE = Number(process.env.GERACAO_LOTE ?? 5);
 
+/**
+ * Porta local que serve de TRAVA DE INSTÂNCIA ÚNICA e de status ao mesmo tempo.
+ *
+ * Escutar uma porta é a trava mais confiável que existe no Windows para isto:
+ * o sistema operacional a solta sozinho quando o processo morre, de qualquer
+ * jeito que ele morra. Arquivo de lock com PID não tem essa garantia — depois
+ * de um desligamento forçado ele fica lá, mentindo que há um worker de pé.
+ *
+ * Duas instâncias não corromperiam a fila (a reserva é atômica no banco), mas
+ * gastariam cota do Gemini em dobro, que é o recurso escasso aqui.
+ */
+const PORTA_STATUS = Number(process.env.GERACAO_PORTA_STATUS ?? 8477);
+
+/**
+ * Enquanto este arquivo existir, o worker fica de pé mas não processa nada.
+ *
+ * É a diferença entre "pausar" e "matar". Matar o serviço para conseguir
+ * exclusividade sobre a fila é frágil: a cadeia wscript → cmd → node leva
+ * segundos para nascer, e um kill no meio dela não encontra nada para matar —
+ * o worker aparece logo depois e volta a disputar. Foi assim que a suíte de
+ * testes ficou intermitente, sempre do mesmo jeito: o worker de produção
+ * gerava o lead antes do teste, e o teste via "geradas=0".
+ *
+ * Um arquivo não tem corrida: ou ele está lá quando o ciclo começa, ou não.
+ * Serve tanto para os testes quanto para uso normal — dá para segurar a
+ * geração por um tempo sem derrubar o serviço nem perder a fila.
+ */
+const ARQUIVO_PAUSA = join(process.cwd(), "geracao.pausado");
+
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Só campos que este arquivo monta. Nada de `process.env` no log: o worker
+ * carrega GEMINI_API_KEY e DATABASE_URL, e log de serviço vai para arquivo que
+ * fica no disco para sempre.
+ */
 function log(msg: string, extra: Record<string, unknown> = {}) {
   console.log(
     JSON.stringify({ ts: new Date().toISOString(), modulo: "worker-geracao", msg, ...extra }),
   );
+}
+
+type Situacao = { desde: string; ultimoLote: unknown; ciclos: number; pausado: boolean };
+
+/**
+ * Sobe o servidor de status. Resolve `false` se a porta já estiver ocupada —
+ * isto é, se já existe outro worker vivo.
+ */
+function abrirStatus(situacao: Situacao): Promise<boolean> {
+  return new Promise((resolve) => {
+    const servidor = createServer((_req, res) => {
+      void (async () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            estado: situacao.pausado ? "pausado" : "rodando",
+            /**
+             * Handshake da pausa: vira true só quando o laço REALMENTE parou
+             * de processar. Criar o arquivo não basta como sinal — um lote em
+             * andamento leva minutos (4s entre leads mais a ida ao Gemini) e
+             * segue reservando itens nesse meio-tempo. Quem precisa de
+             * exclusividade sobre a fila espera este campo, não o arquivo.
+             */
+            pausado: situacao.pausado,
+            desde: situacao.desde,
+            ciclos: situacao.ciclos,
+            ultimoLote: situacao.ultimoLote,
+            fila: await estadoGeracao(),
+          }),
+        );
+      })();
+    });
+
+    servidor.once("error", (e: NodeJS.ErrnoException) => {
+      resolve(e.code !== "EADDRINUSE" ? true : false);
+    });
+    servidor.once("listening", () => {
+      servidor.unref(); // não segura o processo de pé sozinho
+      resolve(true);
+    });
+    servidor.listen(PORTA_STATUS, "127.0.0.1");
+  });
 }
 
 let parando = false;
@@ -58,11 +137,47 @@ for (const sinal of ["SIGINT", "SIGTERM"] as const) {
 
 async function main() {
   const umaVez = process.argv.includes("--uma-vez");
-  const estado = await estadoGeracao();
-  log("worker de geração no ar", { lote: LOTE, fila: estado });
+  const situacao: Situacao = {
+    desde: new Date().toISOString(),
+    ultimoLote: null,
+    ciclos: 0,
+    pausado: false,
+  };
 
+  /**
+   * A trava vale só para o worker que fica de pé. `--uma-vez` é usado pelos
+   * testes e por chamadas manuais, e precisa poder rodar mesmo com o serviço
+   * ativo — são operações curtas, e a reserva atômica cuida da concorrência.
+   */
+  if (!umaVez && !(await abrirStatus(situacao))) {
+    log("já existe um worker de geração rodando — saindo", { porta: PORTA_STATUS });
+    process.exit(0);
+  }
+
+  const estado = await estadoGeracao();
+  log("worker de geração no ar", { lote: LOTE, porta: umaVez ? null : PORTA_STATUS, fila: estado });
+
+  let avisouPausa = false;
   while (!parando) {
+    if (existsSync(ARQUIVO_PAUSA)) {
+      situacao.pausado = true;
+      if (!avisouPausa) {
+        log("pausado por geracao.pausado — nada será processado até o arquivo sumir");
+        avisouPausa = true;
+      }
+      if (umaVez) break;
+      await dormir(2000);
+      continue;
+    }
+    situacao.pausado = false;
+    if (avisouPausa) {
+      log("pausa liberada — voltando a processar");
+      avisouPausa = false;
+    }
+
     const r = await processarLote({ max: LOTE, orcamentoMs: 5 * 60 * 1000 });
+    situacao.ciclos++;
+    situacao.ultimoLote = { em: new Date().toISOString(), ...r };
 
     if (r.geradas || r.erros || r.puladas || r.recuperados) {
       log("lote processado", r);

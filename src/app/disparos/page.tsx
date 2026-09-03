@@ -95,6 +95,24 @@ type Amostra = {
   mensagem?: string;
   erro?: string;
 };
+/** Espelho da resposta de /api/disparo/pre-voo. */
+type PreVoo = {
+  pode: boolean;
+  pendencias: { item: string; ok: boolean; detalhe?: string }[];
+  faltando: string[];
+  resumo: {
+    aprovadas: number;
+    rascunhos: number;
+    sairaoHoje: number;
+    enviadasHoje: number;
+    limiteDiario: number;
+    intervaloSegundos: number;
+    campanhas: string[];
+    automacaoAtiva: boolean;
+    workerAtivo: boolean;
+  };
+};
+
 /** Espelho de `EstadoGeracao` em lib/gen/fila-geracao. */
 type EstadoGeracao = {
   total: number;
@@ -181,6 +199,8 @@ export default function Disparos() {
 
   const [preparando, setPreparando] = useState(false);
   const [campanhaPronta, setCampanhaPronta] = useState<CampanhaPronta | null>(null);
+  /** Resultado da checagem de pré-voo, preenchido ao pedir para iniciar. */
+  const [preVoo, setPreVoo] = useState<PreVoo | null>(null);
 
   function escolherSegmento(v: string) {
     setSegmento(v);
@@ -373,15 +393,33 @@ export default function Disparos() {
     }
   }
 
-  function pedirConfirmacaoIniciar() {
+  /**
+   * Antes de mostrar a confirmação, roda o pré-voo no servidor.
+   *
+   * As travas sempre existiram, mas só apareciam DEPOIS de ligar, uma a cada
+   * mensagem que não saía. Ligar e ficar adivinhando por que nada acontece é
+   * pior que um "não" imediato com o motivo escrito.
+   */
+  async function pedirConfirmacaoIniciar() {
     if (rodando) {
       setAviso("Automação já está em execução.");
       return;
     }
-    setConfirmarInicio(true);
+    setOcupado(true);
+    try {
+      const r: PreVoo = await fetch("/api/disparo/pre-voo").then((x) => x.json());
+      setPreVoo(r);
+      setConfirmarInicio(true);
+    } catch {
+      setAviso("Não consegui verificar as condições de disparo. Tente de novo.");
+    } finally {
+      setOcupado(false);
+    }
   }
 
   async function confirmarIniciar() {
+    // Cinto e suspensório: o botão já fica desabilitado quando `pode` é falso.
+    if (preVoo && !preVoo.pode) return;
     setConfirmarInicio(false);
     await acaoWorker("ligar");
   }
@@ -1039,30 +1077,51 @@ export default function Disparos() {
             aria-labelledby="confirmar-inicio-titulo"
           >
             <h2 id="confirmar-inicio-titulo" className="text-[18px] font-semibold leading-snug">
-              Você está prestes a iniciar os disparos.
+              {preVoo?.pode
+                ? "Você está prestes a iniciar os disparos."
+                : "Ainda não dá para iniciar."}
             </h2>
-            <ul className="mt-4 space-y-1.5 text-[14px] text-[var(--texto-2)]">
-              <li>
-                Fila hoje:{" "}
-                <strong className="text-[var(--texto)]">
-                  {Math.min(painel.aguardando, config.limiteDiario)} empresas
-                </strong>
-              </li>
-              <li>
-                Intervalo:{" "}
-                <strong className="text-[var(--texto)]">{config.intervaloSegundos} segundos</strong>
-              </li>
+
+            {/**
+             * A lista inteira, não só o que falta: ver os itens verdes é o que
+             * dá confiança de que a checagem realmente rodou, e quando algo
+             * falha você enxerga na hora se é a bridge, o teto ou a aprovação.
+             */}
+            <ul className="mt-4 space-y-1.5 text-[13.5px]">
+              {preVoo?.pendencias.map((p) => (
+                <li key={p.item} className="flex gap-2">
+                  <span className={p.ok ? "text-[var(--verde,var(--azul))]" : "text-[var(--vermelho,#c0392b)]"}>
+                    {p.ok ? "✓" : "✗"}
+                  </span>
+                  <span>
+                    <strong className="text-[var(--texto)]">{p.item}</strong>
+                    {p.detalhe && <span className="text-[var(--texto-2)]"> — {p.detalhe}</span>}
+                  </span>
+                </li>
+              ))}
             </ul>
+
+            {preVoo?.pode && (
+              <div className="mt-4 rounded-[10px] bg-[var(--azul-fraco)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--azul)]">
+                Saem hoje: <strong>{preVoo.resumo.sairaoHoje} empresas</strong>, uma a cada{" "}
+                {preVoo.resumo.intervaloSegundos}s.
+                {preVoo.resumo.campanhas.length > 0 && (
+                  <> Campanha: {preVoo.resumo.campanhas.join(", ")}.</>
+                )}
+              </div>
+            )}
+
             <p className="mt-3 text-[13.5px] leading-relaxed text-[var(--texto-2)]">
-              A fila pode conter mensagens de mais de uma campanha preparada. Cada uma sai com o
-              texto exato com que foi criada.
-            </p>
-            <p className="mt-3 text-[13.5px] leading-relaxed text-[var(--texto-2)]">
-              Depois de iniciar, o sistema continuará enviando automaticamente até atingir o limite
-              ou não haver mais empresas elegíveis — mesmo se você fechar esta página.
+              {preVoo?.pode
+                ? "Depois de iniciar, o sistema continua enviando sozinho até bater o limite ou acabar a fila — mesmo com esta página fechada. O botão PARAR interrompe a qualquer momento sem perder a fila."
+                : "Nada será enviado enquanto os itens acima não estiverem resolvidos. Nenhuma mensagem é perdida — a fila continua esperando."}
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
-              <button onClick={confirmarIniciar} disabled={ocupado} className="btn-primario">
+              <button
+                onClick={confirmarIniciar}
+                disabled={ocupado || !preVoo?.pode}
+                className="btn-primario"
+              >
                 ▶ Iniciar
               </button>
               <button

@@ -1,6 +1,12 @@
 import { loadEnvConfig } from "@next/env";
 loadEnvConfig(process.cwd());
 
+import { writeFileSync, rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+
+/** Mesmo caminho que o worker observa — ver ARQUIVO_PAUSA em worker-geracao. */
+const ARQUIVO_PAUSA = join(process.cwd(), "geracao.pausado");
+
 import { and, eq, inArray, like } from "drizzle-orm";
 import { db, leads, mensagens, campanhas, eventos, geracaoFila, configuracoes } from "@/lib/db";
 import {
@@ -31,6 +37,9 @@ import { criarCampanhaParaGerar } from "@/lib/campanha";
  */
 const MARCA = "TESTE-GER";
 
+/** Se este teste pausou o worker de produção, precisa liberar no fim. */
+let workerPausado = false;
+
 let passou = 0;
 let falhou = 0;
 function ok(nome: string, condicao: boolean, detalhe = "") {
@@ -59,8 +68,54 @@ const geradorQuebrado: Gerador = async () => {
   throw new Error("JSON inválido devolvido pelo modelo");
 };
 
+async function pausarWorkerReal(): Promise<boolean> {
+  /**
+   * Segura o worker de produção com um ARQUIVO, não matando processo.
+   *
+   * Matar era frágil: a cadeia wscript -> cmd -> node leva segundos para
+   * nascer, e um kill no meio dela não acha nada para matar — o worker
+   * aparecia logo depois e disputava os itens do teste. O sintoma era sempre o
+   * mesmo, e sempre inocente (o worker gerava antes, nada duplicava), mas
+   * teste que às vezes passa não serve para nada.
+   *
+   * O arquivo não tem corrida: no início de cada ciclo ele está lá ou não.
+   */
+  writeFileSync(ARQUIVO_PAUSA, "teste em andamento\n");
+
+  /**
+   * Espera o worker CONFIRMAR a pausa, em vez de dormir um tempo qualquer.
+   *
+   * Dormir 2,5s não bastava: um lote já em andamento leva minutos (4s entre
+   * leads mais a ida ao Gemini) e continua reservando itens o tempo todo. O
+   * teste seguia achando que tinha a fila só para si e às vezes encontrava um
+   * item seu em `processando`, reservado por outro. Agora o worker publica
+   * `pausado: true` só quando o laço de fato parou, e é isso que se espera.
+   */
+  const limite = Date.now() + 6 * 60 * 1000;
+  for (;;) {
+    let st: { pausado?: boolean } | null = null;
+    try {
+      const r = await fetch("http://127.0.0.1:8477/", { signal: AbortSignal.timeout(3000) });
+      st = r.ok ? await r.json() : null;
+    } catch {
+      return true; // worker não está no ar: fila já é exclusiva do teste
+    }
+    if (st?.pausado) return true;
+    if (Date.now() > limite) {
+      console.log("(aviso: worker não confirmou a pausa a tempo — o teste pode ficar instável)");
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+function religarWorkerReal() {
+  if (existsSync(ARQUIVO_PAUSA)) rmSync(ARQUIVO_PAUSA);
+}
+
 async function main() {
   const cfgAntes = (await db.select().from(configuracoes).limit(1))[0];
+  workerPausado = await pausarWorkerReal();
   await limpar();
 
   console.log("\n=== 1. cinco leads diferentes, cada um com sua mensagem ===");
@@ -231,6 +286,10 @@ async function main() {
     .set({ processandoDesde: new Date(Date.now() - 10 * 60 * 1000) })
     .where(eq(geracaoFila.id, reservado!.id));
   const ePreso = await estadoGeracao(cPreso);
+  if (ePreso.processando !== 1) {
+    const linhas = await db.select().from(geracaoFila).where(eq(geracaoFila.campanhaId, cPreso));
+    console.log("    DIAGNOSTICO reservado=", reservado?.id, JSON.stringify(linhas.map(l=>({id:l.id.slice(0,8),status:l.status,pd:l.processandoDesde,tent:l.tentativas,err:l.erro?.slice(0,60)}))));
+  }
   ok("item ficou preso em processando", ePreso.processando === 1);
 
   const recuperados = await recuperarPresos();
@@ -279,6 +338,7 @@ async function main() {
   );
 
   await limpar();
+  if (workerPausado) religarWorkerReal();
   console.log(`\n${passou} ok, ${falhou} falha(s). Dados de teste removidos.`);
   process.exit(falhou ? 1 : 0);
 }
@@ -320,5 +380,6 @@ async function limpar() {
 main().catch(async (e) => {
   console.error("FALHOU:", e);
   await limpar().catch(() => {});
+  if (workerPausado) religarWorkerReal();
   process.exit(1);
 });

@@ -37,7 +37,9 @@
     "test:retry-temporario": "tsx src/lib/__testes__/retry-temporario.test-manual.ts",
     "geracao": "tsx src/scripts/worker-geracao.ts",
     "test:geracao": "tsx src/lib/__testes__/geracao.test-manual.ts",
-    "test:geracao-worker": "tsx src/lib/__testes__/geracao-worker.test-manual.ts"
+    "test:geracao-worker": "tsx src/lib/__testes__/geracao-worker.test-manual.ts",
+    "status": "tsx src/scripts/diagnostico.ts",
+    "test:infra": "tsx src/lib/__testes__/infra.test-manual.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

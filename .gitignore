@@ -65,3 +65,4 @@ servico.vbs
 !.env.example
 painel.log
 *.log
+geracao.pausado
