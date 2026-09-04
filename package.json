@@ -40,7 +40,9 @@
     "test:geracao-worker": "tsx src/lib/__testes__/geracao-worker.test-manual.ts",
     "status": "tsx src/scripts/diagnostico.ts",
     "test:infra": "tsx src/lib/__testes__/infra.test-manual.ts",
-    "test:painel": "tsx src/lib/__testes__/painel.test-manual.ts"
+    "test:painel": "tsx src/lib/__testes__/painel.test-manual.ts",
+    "test:comercial": "tsx src/lib/__testes__/comercial.test-manual.ts",
+    "test:comercial-db": "tsx src/lib/__testes__/comercial-db.test-manual.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

@@ -339,7 +339,7 @@ export function avaliarSistema(lead: Lead): EncaixeSistema {
 }
 
 /** Frase curta pra tela: "Agendamento · Clientes · Financeiro". */
-const ROTULO_MODULO: Record<Modulo, string> = {
+export const ROTULO_MODULO: Record<Modulo, string> = {
   agendamento: "Agendamento",
   "ordem-servico": "Ordem de serviço",
   clientes: "Clientes",

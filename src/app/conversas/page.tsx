@@ -11,6 +11,23 @@ type ItemLista = {
   naoLidas: number;
 };
 
+/** Espelho de /api/comercial/[leadId]. */
+type PainelComercial = {
+  score: { total: number; base: number; ajuste: number; emoji: string; motivos: string[] };
+  proximaAcao: { tipo: string; titulo: string; motivo: string; pergunta?: string; acao?: string; urgencia: string };
+  objecao: { id: string; nome: string; estrategia: string; resposta: string; trecho: string } | null;
+  diagnostico: {
+    pergunta: string;
+    investiga: string;
+    respondida: boolean;
+    resposta: string | null;
+    insight: string | null;
+  }[];
+  memoria: { processoAtual?: string; dorConfirmada?: string };
+  proposta: { problema: string; problemaConfirmado: boolean; solucao: string; pendencias: string[] };
+  negocio: { status: string; setup: number | null; mensalidade: number | null } | null;
+};
+
 export default function ConversasPage() {
   const [itens, setItens] = useState<ItemLista[]>([]);
   const [selecionado, setSelecionado] = useState<string | null>(null);
@@ -18,6 +35,43 @@ export default function ConversasPage() {
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  /** Painel comercial do lead aberto. Ver /api/comercial/[leadId]. */
+  const [comercial, setComercial] = useState<PainelComercial | null>(null);
+  const [registrando, setRegistrando] = useState<string | null>(null);
+  const [respostaDiag, setRespostaDiag] = useState("");
+
+  /** Sem IA e sem escrita: só junta o que já está no banco. */
+  const carregarComercial = useCallback(async (leadId: string) => {
+    const r = await fetch(`/api/comercial/${leadId}`).then((x) => x.json());
+    setComercial(r.erro ? null : r);
+  }, []);
+
+  async function registrarDiagnostico(pergunta: string) {
+    if (!selecionado || !respostaDiag.trim()) return;
+    const r = await fetch(`/api/comercial/${selecionado}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acao: "responder-diagnostico", pergunta, resposta: respostaDiag }),
+    }).then((x) => x.json());
+    if (!r.erro) setComercial(r);
+    setRegistrando(null);
+    setRespostaDiag("");
+  }
+
+  /**
+   * Cria o negócio em RASCUNHO. Não define preço e não move o funil —
+   * proposta criada não é proposta enviada, e muito menos negócio fechado.
+   */
+  async function criarProposta() {
+    if (!selecionado) return;
+    const r = await fetch(`/api/comercial/${selecionado}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acao: "salvar-negocio", status: "rascunho" }),
+    }).then((x) => x.json());
+    if (!r.erro) setComercial(r);
+  }
 
   const carregarLista = useCallback(() => {
     fetch("/api/conversas")
@@ -46,8 +100,10 @@ export default function ConversasPage() {
         body: JSON.stringify({ acao: "marcar-lida" }),
       });
       carregarLista();
+      // Só leitura, sem IA: abrir conversa não custa cota.
+      void carregarComercial(leadId);
     },
-    [carregarLista],
+    [carregarLista, carregarComercial],
   );
 
   async function enviar() {
@@ -182,6 +238,212 @@ export default function ConversasPage() {
                 <p className="mt-2 text-[12px] text-[var(--texto-3)]">
                   Resposta automática não vai disparar para este lead.
                 </p>
+              )}
+
+              {/**
+                * PAINEL COMERCIAL — a pergunta que o vendedor tem quando abre
+                * esta tela: *o que eu faço agora com este lead?*
+                *
+                * Tudo aqui é calculado de dados já gravados (lib/proxima-acao,
+                * lib/objecoes, lib/diagnostico). Nenhuma chamada de IA, então
+                * abrir a conversa não custa cota nenhuma.
+                *
+                * Nada aqui envia mensagem: o que aparece é texto para copiar.
+                */}
+              {comercial && (
+                <div className="mt-4 space-y-4 border-t border-[var(--linha)] pt-4">
+                  <div>
+                    <p className="text-[12px] uppercase tracking-wide text-[var(--texto-3)]">
+                      Oportunidade
+                    </p>
+                    <p className="text-[15px] font-semibold tabular-nums">
+                      {comercial.score.emoji} {comercial.score.total}/100
+                      {comercial.score.ajuste !== 0 && (
+                        <span className="ml-1.5 text-[12px] font-normal text-[var(--texto-3)]">
+                          ({comercial.score.base} do cadastro
+                          {comercial.score.ajuste > 0 ? " +" : " "}
+                          {comercial.score.ajuste} pelo comportamento)
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-1 text-[11.5px] leading-snug text-[var(--texto-3)]">
+                      Prioridade interna — nunca diga isso ao cliente.
+                    </p>
+                  </div>
+
+                  {comercial.memoria?.dorConfirmada ? (
+                    <div>
+                      <p className="text-[12px] uppercase tracking-wide text-[var(--texto-3)]">
+                        ✅ Dor confirmada
+                      </p>
+                      <p className="text-[13px] leading-relaxed">
+                        {comercial.memoria.dorConfirmada}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-[12px] uppercase tracking-wide text-[var(--texto-3)]">
+                        💡 Hipótese
+                      </p>
+                      <p className="text-[13px] leading-relaxed text-[var(--texto-2)]">
+                        {comercial.proposta.problema}
+                      </p>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-[12px] uppercase tracking-wide text-[var(--texto-3)]">
+                      🛠 Solução
+                    </p>
+                    <p className="text-[13px] leading-relaxed">{comercial.proposta.solucao}</p>
+                  </div>
+
+                  {/* ---------------------------------------- próxima ação */}
+                  <div className="rounded-[10px] bg-[var(--azul-fraco)] px-3 py-2.5">
+                    <p className="text-[12px] uppercase tracking-wide text-[var(--azul)]">
+                      🎯 Próxima ação
+                    </p>
+                    <p className="mt-0.5 text-[13.5px] font-semibold text-[var(--azul)]">
+                      {comercial.proximaAcao.titulo}
+                    </p>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--texto-2)]">
+                      {comercial.proximaAcao.motivo}
+                    </p>
+                    {comercial.proximaAcao.pergunta && (
+                      <>
+                        <p className="mt-2 rounded-[8px] bg-[var(--fundo)] px-2.5 py-2 text-[13px] leading-relaxed">
+                          {comercial.proximaAcao.pergunta}
+                        </p>
+                        <button
+                          onClick={() => setTexto(comercial.proximaAcao.pergunta!)}
+                          className="btn-secundario mt-2"
+                        >
+                          Usar sugestão
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* ---------------------------------------- objeção */}
+                  {comercial.objecao && (
+                    <div className="rounded-[10px] bg-[var(--ambar-fraco)] px-3 py-2.5">
+                      <p className="text-[12px] uppercase tracking-wide text-[var(--ambar)]">
+                        🧠 Objeção detectada — {comercial.objecao.nome}
+                      </p>
+                      <p className="mt-1 text-[12.5px] italic leading-relaxed text-[var(--texto-2)]">
+                        “{comercial.objecao.trecho}”
+                      </p>
+                      <p className="mt-2 text-[12.5px] leading-relaxed">
+                        <strong>Estratégia:</strong> {comercial.objecao.estrategia}
+                      </p>
+                      <p className="mt-2 rounded-[8px] bg-[var(--fundo)] px-2.5 py-2 text-[13px] leading-relaxed">
+                        {comercial.objecao.resposta}
+                      </p>
+                      <button
+                        onClick={() => setTexto(comercial.objecao!.resposta)}
+                        className="btn-secundario mt-2"
+                      >
+                        Usar resposta
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ---------------------------------------- diagnóstico */}
+                  <div>
+                    <p className="text-[12px] uppercase tracking-wide text-[var(--texto-3)]">
+                      🔍 Diagnóstico ({comercial.diagnostico.filter((d) => d.respondida).length}/
+                      {comercial.diagnostico.length})
+                    </p>
+                    <div className="mt-1.5 space-y-2">
+                      {comercial.diagnostico.map((d) => (
+                        <div key={d.pergunta}>
+                          <p className="text-[12.5px] leading-snug">
+                            {d.respondida ? "✓" : "○"} {d.pergunta}
+                          </p>
+                          {d.respondida ? (
+                            <p className="mt-0.5 pl-4 text-[12px] leading-snug text-[var(--texto-2)]">
+                              {d.resposta}
+                              <br />
+                              <span className="text-[var(--texto-3)]">{d.insight}</span>
+                            </p>
+                          ) : (
+                            <div className="mt-1 flex gap-1.5 pl-4">
+                              <button
+                                onClick={() => setTexto(d.pergunta)}
+                                className="text-[11.5px] text-[var(--azul)] underline"
+                              >
+                                perguntar
+                              </button>
+                              <button
+                                onClick={() => setRegistrando(d.pergunta)}
+                                className="text-[11.5px] text-[var(--texto-3)] underline"
+                              >
+                                registrar resposta
+                              </button>
+                            </div>
+                          )}
+                          {registrando === d.pergunta && (
+                            <div className="mt-1.5 pl-4">
+                              <input
+                                value={respostaDiag}
+                                onChange={(e) => setRespostaDiag(e.target.value)}
+                                placeholder="O que ele respondeu?"
+                                className="w-full rounded-[8px] bg-[var(--superficie)] px-2.5 py-1.5 text-[12.5px]"
+                              />
+                              <div className="mt-1.5 flex gap-1.5">
+                                <button
+                                  onClick={() => registrarDiagnostico(d.pergunta)}
+                                  className="btn-primario"
+                                >
+                                  Salvar
+                                </button>
+                                <button
+                                  onClick={() => setRegistrando(null)}
+                                  className="btn-secundario"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ---------------------------------------- comercial */}
+                  <div>
+                    <p className="text-[12px] uppercase tracking-wide text-[var(--texto-3)]">
+                      💰 Comercial
+                    </p>
+                    {comercial.negocio ? (
+                      <p className="text-[13px] leading-relaxed">
+                        {comercial.negocio.status} ·{" "}
+                        {comercial.negocio.setup != null
+                          ? `setup R$ ${comercial.negocio.setup}`
+                          : "setup a definir"}{" "}
+                        ·{" "}
+                        {comercial.negocio.mensalidade != null
+                          ? `R$ ${comercial.negocio.mensalidade}/mês`
+                          : "mensalidade a definir"}
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-[12.5px] leading-relaxed text-[var(--texto-2)]">
+                          Sem proposta registrada.
+                        </p>
+                        {comercial.proposta.pendencias.map((p) => (
+                          <p key={p} className="mt-0.5 text-[11.5px] text-[var(--texto-3)]">
+                            • {p}
+                          </p>
+                        ))}
+                        <button onClick={criarProposta} className="btn-secundario mt-2">
+                          Gerar proposta
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               )}
 
               <Link

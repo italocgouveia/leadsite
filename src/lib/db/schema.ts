@@ -187,6 +187,9 @@ export const leads = pgTable(
      */
     proximoContato: timestamp("proximo_contato", { withTimezone: true }),
 
+    /** O que a conversa revelou, em campos. Ver MemoriaComercial. */
+    memoriaComercial: jsonb("memoria_comercial").$type<MemoriaComercial>(),
+
     /** Você já abriu/analisou este lead. Serve pra separar novo de repetido. */
     visto: boolean("visto").notNull().default(false),
     /**
@@ -838,5 +841,102 @@ export const geracaoFila = pgTable(
     uniqueIndex("geracao_fila_campanha_lead_idx").on(t.campanhaId, t.leadId),
     index("geracao_fila_proxima_idx").on(t.status, t.proximaTentativaEm),
     index("geracao_fila_campanha_idx").on(t.campanhaId),
+  ],
+);
+
+/**
+ * Memória comercial do lead: o que a conversa revelou, em campos.
+ *
+ * Fica em jsonb numa coluna do próprio lead, e não em tabela nova, porque é
+ * sempre lido junto com o lead e nunca consultado por si só. O que ele evita é
+ * concreto: sem isso o vendedor reabre a conversa inteira para lembrar que o
+ * cliente usa planilha e reclamou de preço.
+ */
+export type MemoriaComercial = {
+  /** Como o cliente faz hoje, na palavra dele. */
+  processoAtual?: string;
+  /** A dor, depois de confirmada pelo cliente — não a hipótese. */
+  dorConfirmada?: string;
+  /** Última objeção levantada (id de lib/objecoes). */
+  objecao?: string;
+  /** Perguntas de diagnóstico já respondidas. */
+  respostas?: { pergunta: string; resposta: string; insight: string; em: string }[];
+  /** Resumo da conversa, gerado sob demanda. Nunca a cada mensagem. */
+  resumo?: { texto: string; em: string };
+};
+
+/** Ciclo de vida de um negócio: da proposta ao cliente ativo. */
+export const STATUS_NEGOCIO = [
+  "rascunho",
+  "enviada",
+  "negociacao",
+  "fechada",
+  "perdida",
+  "implantacao",
+  "ativo",
+  "pausado",
+  "cancelado",
+] as const;
+export type StatusNegocio = (typeof STATUS_NEGOCIO)[number];
+
+/**
+ * O negócio: proposta, setup, mensalidade e o que vem depois de fechar.
+ *
+ * UMA tabela para todo o ciclo, não três (proposta / contrato / assinatura).
+ * O motivo é que os três seriam sempre a mesma linha da vida real com nomes
+ * diferentes, e separar obrigaria a copiar valor e solução entre elas a cada
+ * mudança de estado — que é exatamente onde os números começam a divergir.
+ *
+ * Valores em REAIS inteiros, não centavos: os preços daqui são cheios
+ * (R$ 2.000 de setup, R$ 400/mês) e centavos só acrescentariam zeros e uma
+ * conversão a mais para errar.
+ *
+ * Nada aqui é preenchido por IA sozinha. A IA sugere texto; setup e
+ * mensalidade só existem quando alguém digitou — `null` significa "ainda não
+ * definido", e a tela mostra assim, em vez de inventar um número.
+ */
+export const negocios = pgTable(
+  "negocios",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+
+    status: text("status").$type<StatusNegocio>().notNull().default("rascunho"),
+
+    /** Solução do catálogo (lib/catalogo-solucoes) e os módulos do escopo. */
+    solucao: text("solucao"),
+    modulos: jsonb("modulos").$type<string[]>().default([]),
+    /** O problema como o CLIENTE contou. Base do resumo da proposta. */
+    problema: text("problema"),
+
+    /** Em reais. `null` = ainda não definido — a tela nunca chuta. */
+    setup: integer("setup"),
+    mensalidade: integer("mensalidade"),
+
+    /** Texto da proposta, quando gerado. Editável antes de enviar. */
+    textoProposta: text("texto_proposta"),
+    observacoes: text("observacoes"),
+
+    enviadaEm: timestamp("enviada_em", { withTimezone: true }),
+    fechadaEm: timestamp("fechada_em", { withTimezone: true }),
+    /** Quando a mensalidade começou a valer — a data que o MRR usa. */
+    inicioEm: timestamp("inicio_em", { withTimezone: true }),
+
+    /**
+     * Follow-up MANUAL: uma data e um motivo. Nada dispara sozinho — o CRM
+     * mostra que venceu e quem manda é você.
+     */
+    proximoFollowUp: timestamp("proximo_follow_up", { withTimezone: true }),
+    motivoFollowUp: text("motivo_follow_up"),
+
+    criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("negocios_lead_idx").on(t.leadId),
+    index("negocios_status_idx").on(t.status),
+    index("negocios_follow_up_idx").on(t.proximoFollowUp),
   ],
 );
