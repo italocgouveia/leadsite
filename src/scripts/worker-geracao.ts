@@ -175,7 +175,29 @@ async function main() {
       avisouPausa = false;
     }
 
-    const r = await processarLote({ max: LOTE, orcamentoMs: 5 * 60 * 1000 });
+    /**
+     * Um lote que falha NÃO pode derrubar o worker.
+     *
+     * O banco é HTTP, e HTTP falha: uma consulta que caiu no meio do caminho
+     * subia até aqui e matava o processo. O supervisor reerguia 60s depois,
+     * e o ciclo se repetia — o worker passava mais tempo reiniciando do que
+     * gerando. Na prática ficou visível quando uma campanha de 300 leads
+     * produziu 1 mensagem em 5 minutos.
+     *
+     * A fila aguenta a queda sem ajuda: item reservado que não terminou volta
+     * sozinho pelo `recuperarPresos`. O que faltava era só não morrer.
+     */
+    let r;
+    try {
+      r = await processarLote({ max: LOTE, orcamentoMs: 5 * 60 * 1000 });
+    } catch (e) {
+      log("lote falhou — seguindo para o próximo ciclo", {
+        erro: e instanceof Error ? e.message.split("\n")[0] : String(e),
+      });
+      await dormir(10_000);
+      continue;
+    }
+
     situacao.ciclos++;
     situacao.ultimoLote = { em: new Date().toISOString(), ...r };
 

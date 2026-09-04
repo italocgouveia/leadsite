@@ -535,9 +535,31 @@ export default function Disparos() {
     let vivo = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
+    /** Só lê o estado. Responde na hora e nunca deixa a tela sem informação. */
+    const olhar = async () => {
+      const e: EstadoGeracao = await fetch(
+        `/api/campanhas/gerar?id=${campanhaEmGeracao}`,
+      ).then((x) => x.json());
+      if (!vivo || !e || typeof e.pronta !== "number") return;
+      setCampanhaPronta((c) =>
+        c && c.campanhaId === campanhaEmGeracao ? { ...c, estado: e, quantidade: e.pronta } : c,
+      );
+    };
+
     const passo = async () => {
       if (!vivo) return;
       try {
+        /**
+         * Lê o estado ANTES de empurrar o lote.
+         *
+         * O PATCH processa uma leva e pode demorar (ou falhar), e enquanto ele
+         * não voltava a tela ficava sem `estado` nenhum — caindo no rótulo
+         * otimista "CAMPANHA PRONTA" com zero mensagens, que é a pior coisa
+         * que essa tela pode dizer. Um GET barato antes garante que o que
+         * aparece é sempre o que o servidor tem.
+         */
+        await olhar();
+
         const r = await fetch("/api/campanhas/gerar", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -948,10 +970,35 @@ export default function Disparos() {
             <section className="cartao surgir mb-6 p-5">
               {(() => {
                 const e = campanhaPronta.estado;
-                const faltam = (e?.pendente ?? 0) + (e?.processando ?? 0);
+                /**
+                 * Sem estado ainda = "carregando", NUNCA "pronta".
+                 *
+                 * A versão anterior só diferenciava gerando/pronta, e com
+                 * `estado` indefinido caía no otimista: a tela anunciava
+                 * "🟢 CAMPANHA PRONTA — 0 leads" enquanto o servidor tinha 317
+                 * na fila e nada gerado. Anunciar sucesso que não existe é bem
+                 * pior do que não anunciar nada.
+                 */
+                if (!e) {
+                  return (
+                    <p className="text-[16px] font-semibold text-[var(--texto-2)]">
+                      … CARREGANDO ESTADO
+                    </p>
+                  );
+                }
+                const faltam = e.pendente + e.processando;
+                const esperandoCota = Boolean(e.proximaTentativaEm) && e.pronta === 0;
                 return (
-                  <p className="text-[16px] font-semibold text-[var(--verde,var(--azul))]">
-                    {faltam > 0 ? "⏳ GERANDO MENSAGENS" : "🟢 CAMPANHA PRONTA"}
+                  <p
+                    className={`text-[16px] font-semibold ${
+                      faltam > 0 ? "text-[var(--texto-2)]" : "text-[var(--verde,var(--azul))]"
+                    }`}
+                  >
+                    {esperandoCota
+                      ? "⏸ AGUARDANDO COTA DA IA"
+                      : faltam > 0
+                        ? `⏳ GERANDO — ${e.pronta} de ${e.total}`
+                        : "🟢 CAMPANHA PRONTA"}
                   </p>
                 );
               })()}
@@ -1020,8 +1067,9 @@ export default function Disparos() {
               )}
 
               <p className="mt-3 rounded-[10px] bg-[var(--azul-fraco)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--azul)]">
-                Cada lead recebe uma mensagem própria, gerada por IA — não é o mesmo texto
-                repetido. A fila roda no servidor: fechar esta aba não interrompe nada.
+                {campanhaPronta.estado && campanhaPronta.estado.pendente > 30
+                  ? `${campanhaPronta.estado.pendente} leads na fila é muito para um dia: é uma chamada de IA por lead, e o teto de envio é ${config.limiteDiario}/dia. Vale cancelar e refazer com um lote menor.`
+                  : "Cada lead recebe uma mensagem própria, gerada por IA — não é o mesmo texto repetido. A fila roda no servidor: fechar esta aba não interrompe nada."}
               </p>
 
               {!campanhaPronta.aprovada && (
@@ -1033,10 +1081,24 @@ export default function Disparos() {
                   >
                     ✓ APROVAR CAMPANHA ({campanhaPronta.quantidade} mensagens)
                   </button>
+                  {/**
+                   * Botão desabilitado precisa dizer POR QUE, senão vira
+                   * "não dá pra clicar". Com zero mensagens prontas não há o
+                   * que aprovar, e o motivo quase sempre é a cota da IA.
+                   */}
                   <p className="mt-2 text-center text-[12px] text-[var(--texto-3)]">
-                    {(campanhaPronta.estado?.pendente ?? 0) > 0
-                      ? "Dá para aprovar o que já ficou pronto — o resto da fila continua gerando e entra depois."
-                      : "As mensagens estão em rascunho. Aprovar move todas para a fila de uma vez — ainda sem enviar."}
+                    {campanhaPronta.quantidade === 0
+                      ? campanhaPronta.estado?.proximaTentativaEm
+                        ? `Nenhuma mensagem pronta ainda — a cota da IA foi atingida. A fila volta a gerar às ${new Date(
+                            campanhaPronta.estado.proximaTentativaEm,
+                          ).toLocaleTimeString("pt-BR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })} e o botão libera sozinho. Nenhum lead foi perdido.`
+                        : "Nenhuma mensagem pronta ainda. O botão libera assim que a primeira sair."
+                      : (campanhaPronta.estado?.pendente ?? 0) > 0
+                        ? `Dá para aprovar as ${campanhaPronta.quantidade} já prontas — o resto continua gerando e entra depois.`
+                        : "As mensagens estão em rascunho. Aprovar move todas para a fila de uma vez — ainda sem enviar."}
                   </p>
                 </>
               )}
