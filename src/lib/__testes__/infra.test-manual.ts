@@ -52,6 +52,8 @@ async function main() {
   const cfg0 = (await db.select().from(configuracoes).limit(1))[0];
   /** Fila real do usuario antes do teste — o teste nao pode mexer nela. */
   const filaAntes = (await estadoGeracao()).total;
+  /** Quantas o SISTEMA REAL ja enviou hoje. O teste nao pode somar a isto. */
+  const enviadasAntes = await enviadasHoje();
   const automacaoOriginal = cfg0.automacaoAtiva;
   const limiteOriginal = cfg0.limiteDiario;
   await limpar();
@@ -221,7 +223,17 @@ async function main() {
     cfgFim.automacaoAtiva === automacaoOriginal && cfgFim.limiteDiario === limiteOriginal,
     `automacaoAtiva=${cfgFim.automacaoAtiva} limite=${cfgFim.limiteDiario}`,
   );
-  ok("nada foi enviado durante o teste inteiro", (await enviadasHoje()) === 0, `enviadas hoje: ${await enviadasHoje()}`);
+  /**
+   * Compara com o ANTES, nao com zero. Exigir "0 enviadas hoje" era suposicao
+   * sobre a operacao, nao sobre o codigo: assim que voce rodou a primeira
+   * campanha de verdade, o teste passou a acusar falha sem nada ter quebrado.
+   */
+  const enviadasDepois = await enviadasHoje();
+  ok(
+    "o teste nao enviou nenhuma mensagem",
+    enviadasDepois === enviadasAntes,
+    `enviadas hoje: ${enviadasAntes} -> ${enviadasDepois}`,
+  );
 
   /**
    * Compara com o ANTES, nao com zero. Exigir fila vazia era uma suposicao

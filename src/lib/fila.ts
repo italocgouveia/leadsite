@@ -195,18 +195,49 @@ export type Bloqueio =
 const ERROS_SEGUIDOS_PARA_PARAR = 5;
 
 /**
- * As últimas mensagens que TERMINARAM foram todas erro?
+ * Erro que é do LEAD, não do sistema.
+ *
+ * Número que não tem WhatsApp é um cadastro ruim — normal numa lista vinda de
+ * mapa público, onde muito telefone é fixo. Não diz nada sobre a saúde da
+ * bridge, do token ou da conexão.
+ *
+ * A distinção existe porque a parada automática estava contando os dois juntos:
+ * em 04/09 a campanha se desligou sozinha depois de cinco números sem WhatsApp
+ * em sequência — cinco leads ruins, nenhum problema real — e ficou parada até
+ * alguém perceber. Cinco fixos seguidos numa lista de mapa não é acidente
+ * raro, é terça-feira.
+ *
+ * Tudo que não for reconhecido aqui CONTA para a parada. O viés é deliberado:
+ * na dúvida, parar.
+ */
+function ehErroDoLead(erro: string | null): boolean {
+  if (!erro) return false;
+  return /não tem whatsapp|número inválido|numero invalido|sem whatsapp/i.test(erro);
+}
+
+/**
+ * As últimas mensagens que TERMINARAM foram todas erro DE SISTEMA?
  *
  * Olha só o estado final (enviada/entregue/respondida/erro) — `aprovada` e
- * `na-fila` ainda não terminaram e não contam.
+ * `na-fila` ainda não terminaram e não contam. E erro de lead é descartado da
+ * sequência: ele não é sinal de que algo quebrou.
  */
 async function sequenciaDeErros(): Promise<{ parou: boolean; quantos: number }> {
-  const ultimas = await db
-    .select({ status: mensagens.status })
+  /**
+   * Busca mais que o limite porque os erros de lead são descartados depois.
+   * Sem folga, uma sequência tipo [lead, lead, sistema, sistema, sistema]
+   * sobraria com três itens e nunca atingiria o gatilho.
+   */
+  const brutas = await db
+    .select({ status: mensagens.status, erro: mensagens.erro })
     .from(mensagens)
     .where(inArrayStatusTerminal())
     .orderBy(desc(mensagens.atualizadoEm))
-    .limit(ERROS_SEGUIDOS_PARA_PARAR);
+    .limit(ERROS_SEGUIDOS_PARA_PARAR * 4);
+
+  const ultimas = brutas
+    .filter((m) => !(m.status === "erro" && ehErroDoLead(m.erro)))
+    .slice(0, ERROS_SEGUIDOS_PARA_PARAR);
 
   const todosErro =
     ultimas.length === ERROS_SEGUIDOS_PARA_PARAR && ultimas.every((m) => m.status === "erro");
