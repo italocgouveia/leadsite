@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, leads, mensagens, STATUS_MENSAGEM, type StatusMensagem } from "@/lib/db";
+import { db, leads, mensagens, campanhas, STATUS_MENSAGEM, type StatusMensagem } from "@/lib/db";
 import { lerConfig, podeContatar } from "@/lib/fila";
 import { montarProposta } from "@/lib/proposta";
 import { resolverSaudacao, reinserirSaudacao } from "@/lib/saudacao";
@@ -130,6 +130,35 @@ const EmLote = z.object({
   acao: z.enum(["aprovar", "cancelar"]),
 });
 
+/**
+ * Aprovar uma mensagem tem que fazer a campanha dela RODAR.
+ *
+ * A fila de envio só entrega mensagem de campanha `rodando` — pausar campanha
+ * precisa parar o envio de verdade, não só esconder um botão. Mas os botões de
+ * aprovar por card nunca mexiam no status da campanha, então a mensagem virava
+ * `aprovada` dentro de uma campanha `rascunho` e caía num buraco: aprovada
+ * para sempre, invisível para a fila, e sem nada na tela explicando. Em 04/09
+ * havia 82 mensagens presas assim.
+ *
+ * Só promove a partir de `rascunho`. Campanha `pausada` continua pausada —
+ * quem pausou quis pausar, e aprovar uma mensagem não desfaz essa decisão.
+ */
+async function garantirCampanhaRodando(ids: string[]) {
+  if (!ids.length) return;
+  const linhas = await db
+    .select({ campanhaId: mensagens.campanhaId })
+    .from(mensagens)
+    .where(inArray(mensagens.id, ids));
+  const campanhaIds = [
+    ...new Set(linhas.map((l) => l.campanhaId).filter((x): x is string => Boolean(x))),
+  ];
+  if (!campanhaIds.length) return;
+  await db
+    .update(campanhas)
+    .set({ status: "rodando", iniciadaEm: new Date(), atualizadoEm: new Date() })
+    .where(and(inArray(campanhas.id, campanhaIds), eq(campanhas.status, "rascunho")));
+}
+
 export async function PUT(request: Request) {
   let params;
   try {
@@ -158,6 +187,8 @@ export async function PUT(request: Request) {
     )
     .where(alvo)
     .returning({ id: mensagens.id });
+
+  if (params.acao === "aprovar") await garantirCampanhaRodando(alteradas.map((a) => a.id));
 
   return NextResponse.json({ alteradas: alteradas.length });
 }
@@ -224,6 +255,9 @@ export async function PATCH(request: Request) {
     .set({ ...mudanca, atualizadoEm: agora })
     .where(eq(mensagens.id, params.id))
     .returning();
+
+  // Mesma razão do lote: aprovada em campanha parada nunca chega à fila.
+  if (params.acao === "aprovar") await garantirCampanhaRodando([params.id]);
 
   /**
    * Respondeu: o lead sai da automação e o funil reflete isso sozinho. Deixar

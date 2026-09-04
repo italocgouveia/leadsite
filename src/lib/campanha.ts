@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db, campanhas, mensagens, leads, eventos, type Lead } from "@/lib/db";
 import { podeContatar, lerConfig } from "@/lib/fila";
 import { estadoIntegracao } from "@/lib/integracao";
@@ -304,22 +304,60 @@ export async function iniciar(campanhaId: string) {
   }
 
   const agora = new Date();
+
+  /**
+   * NÃO aprova mensagem de lead que já tem outra esperando envio.
+   *
+   * A fila recusa contatar quem já tem mensagem viva — é o que impede a mesma
+   * pessoa receber duas abordagens. Só que a checagem acontece na hora do
+   * envio, e a aprovação em lote não olhava para isso: aprovar duas campanhas
+   * que contêm o mesmo lead criava DUAS mensagens vivas para ele, e as duas
+   * passavam a se bloquear.
+   *
+   * O resultado observado em 04/09 foi uma fila parada com 123 aprovadas e
+   * nenhuma candidata: 26 leads travados em pares, e a tela sem explicar nada
+   * porque, do ponto de vista dela, tudo estava aprovado.
+   *
+   * O lead pulado aqui não some — continua em `rascunho`, e entra assim que a
+   * mensagem anterior dele sair.
+   */
+  const jaTemViva = db
+    .select({ leadId: mensagens.leadId })
+    .from(mensagens)
+    .where(inArray(mensagens.status, ["aprovada", "na-fila"]));
+
   const aprovadas = await db
     .update(mensagens)
     .set({ status: "aprovada", aprovadaEm: agora, erro: null, atualizadoEm: agora })
-    .where(and(eq(mensagens.campanhaId, campanhaId), eq(mensagens.status, "rascunho")))
+    .where(
+      and(
+        eq(mensagens.campanhaId, campanhaId),
+        eq(mensagens.status, "rascunho"),
+        notInArray(mensagens.leadId, jaTemViva),
+      ),
+    )
     .returning({ id: mensagens.id });
+
+  const [restantes] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(mensagens)
+    .where(and(eq(mensagens.campanhaId, campanhaId), eq(mensagens.status, "rascunho")));
 
   await db
     .update(campanhas)
     .set({ status: "rodando", iniciadaEm: c.iniciadaEm ?? agora, atualizadoEm: agora })
     .where(eq(campanhas.id, campanhaId));
 
-  await registrar("campanha.iniciada", `"${c.nome}": ${aprovadas.length} aprovadas`, {
+  await registrar("campanha.iniciada", `"${c.nome}": ${aprovadas.length} aprovadas` + ((restantes?.n ?? 0) ? `, ${restantes.n} adiadas (lead ja tem mensagem na fila)` : ""), {
     campanhaId,
   });
 
-  return { ok: true as const, aprovadas: aprovadas.length };
+  return {
+    ok: true as const,
+    aprovadas: aprovadas.length,
+    /** Ficaram em rascunho porque o lead ja tinha mensagem esperando envio. */
+    adiadas: restantes?.n ?? 0,
+  };
 }
 
 /**
