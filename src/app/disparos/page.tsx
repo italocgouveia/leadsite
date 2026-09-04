@@ -95,6 +95,98 @@ type Amostra = {
   mensagem?: string;
   erro?: string;
 };
+/** Espelho de /api/disparo/oportunidades. */
+type Oportunidades = {
+  encontrados: number;
+  elegiveis: number;
+  excluidos: number;
+  recusas: { motivo: string; quantidade: number }[];
+  segmentos: { nome: string; total: number; comWhatsapp: number; elegiveis: number; solucao: string | null }[];
+  totais: { leads: number; comWhatsapp: number; elegiveis: number };
+  leads: {
+    id: string;
+    nome: string;
+    cidade: string | null;
+    segmento: string;
+    score: number;
+    emoji: string;
+    classificacao: string;
+    motivos: string[];
+    temWhatsapp: boolean;
+    temInstagram: boolean;
+    temSite: boolean;
+    nota: number | null;
+    avaliacoes: number | null;
+    sistema: string | null;
+    modulos: string[];
+    dor: string | null;
+  }[];
+};
+
+type Filtros = {
+  somenteWhatsapp: boolean;
+  incluirContatados: boolean;
+  comInstagram: boolean;
+  site: "qualquer" | "com" | "sem";
+  notaMinima: string;
+  avaliacoesMinimas: string;
+  prioridade: "alta" | "media" | "todas";
+};
+
+const FILTROS_PADRAO: Filtros = {
+  // WhatsApp ligado por padrão: sem número não existe disparo.
+  somenteWhatsapp: true,
+  incluirContatados: false,
+  comInstagram: false,
+  site: "qualquer",
+  notaMinima: "",
+  avaliacoesMinimas: "",
+  prioridade: "todas",
+};
+
+/** Espelho de /api/campanhas/revisao?id= */
+type CardRevisao = {
+  mensagemId: string;
+  status: StatusMensagem;
+  origem: string;
+  texto: string;
+  lead: {
+    id: string;
+    nome: string;
+    cidade: string | null;
+    categoria: string | null;
+    temInstagram: boolean;
+    temSite: boolean;
+    nota: number | null;
+    avaliacoes: number | null;
+  };
+  score: number;
+  emoji: string;
+  classificacao: string;
+  oportunidade: string | null;
+  solucaoId: string | null;
+  solucaoRotulo: string | null;
+};
+
+/** Espelho de /api/campanhas/revisao (lista). */
+type CampanhaResultado = {
+  id: string;
+  nome: string;
+  status: string;
+  criadoEm: string;
+  total: number;
+  rascunho: number;
+  aprovada: number;
+  enviadas: number;
+  respondidas: number;
+  interessados: number;
+  erros: number;
+  canceladas: number;
+  taxaResposta: number;
+  taxaInteresse: number;
+  porIntencao: { intencao: string; rotulo: string; emoji: string; quantos: number }[];
+};
+
 /** Espelho da resposta de /api/disparo/pre-voo. */
 type PreVoo = {
   pode: boolean;
@@ -197,6 +289,20 @@ export default function Disparos() {
   const [amostras, setAmostras] = useState<Amostra[] | null>(null);
   const [gerandoAmostras, setGerandoAmostras] = useState(false);
 
+  // ---------- oportunidades: quem abordar, por quê, e quem ficou de fora ----------
+  const [oportunidades, setOportunidades] = useState<Oportunidades | null>(null);
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_PADRAO);
+  const [mostrarFiltros, setMostrarFiltros] = useState(false);
+  const [carregandoOportunidades, setCarregandoOportunidades] = useState(false);
+
+  // ---------- revisão: os cards da campanha em preparação ----------
+  const [cards, setCards] = useState<CardRevisao[] | null>(null);
+  const [editando, setEditando] = useState<string | null>(null);
+  const [rascunhoTexto, setRascunhoTexto] = useState("");
+
+  // ---------- campanhas salvas e resultados ----------
+  const [campanhasSalvas, setCampanhasSalvas] = useState<CampanhaResultado[] | null>(null);
+
   /** Null = ainda não escolheu; cai no padrão (o teto diário). */
   const [quantidade, setQuantidade] = useState<number | null>(null);
   const [preparando, setPreparando] = useState(false);
@@ -218,6 +324,56 @@ export default function Disparos() {
     setAmostras(null);
     setCampanhaPronta(null);
   }
+
+  /**
+   * Recarrega o painel de oportunidades a cada mudança de filtro.
+   *
+   * É só leitura no servidor (nenhuma IA, nenhuma escrita), então pode rodar
+   * a cada clique. O que ele traz de diferente da prévia antiga é o TERCEIRO
+   * número: quantos ficaram de fora e por quê. Ver lib/oportunidades.ts.
+   */
+  const carregarOportunidades = useCallback(async () => {
+    setCarregandoOportunidades(true);
+    try {
+      const q = new URLSearchParams();
+      if (segmento) q.set("segmento", segmento);
+      q.set("somenteWhatsapp", filtros.somenteWhatsapp ? "1" : "0");
+      if (filtros.incluirContatados) q.set("incluirContatados", "1");
+      if (filtros.comInstagram) q.set("comInstagram", "1");
+      if (filtros.site !== "qualquer") q.set("site", filtros.site);
+      if (filtros.notaMinima) q.set("notaMinima", filtros.notaMinima);
+      if (filtros.avaliacoesMinimas) q.set("avaliacoesMinimas", filtros.avaliacoesMinimas);
+      if (filtros.prioridade !== "todas") q.set("prioridade", filtros.prioridade);
+      q.set("quantidade", "200");
+      const r = await fetch(`/api/disparo/oportunidades?${q}`).then((x) => x.json());
+      setOportunidades(r);
+    } finally {
+      setCarregandoOportunidades(false);
+    }
+  }, [segmento, filtros]);
+
+  useEffect(() => {
+    void (async () => {
+      await carregarOportunidades();
+    })();
+  }, [carregarOportunidades]);
+
+  const carregarCampanhas = useCallback(async () => {
+    const r = await fetch("/api/campanhas/revisao").then((x) => x.json());
+    setCampanhasSalvas(r.campanhas ?? []);
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      await carregarCampanhas();
+    })();
+  }, [carregarCampanhas]);
+
+  /** Os cards de revisão da campanha em preparação. */
+  const carregarCards = useCallback(async (campanhaId: string) => {
+    const r = await fetch(`/api/campanhas/revisao?id=${campanhaId}`).then((x) => x.json());
+    setCards(r.cards ?? []);
+  }, []);
 
   const carregarPreview = useCallback(async () => {
     const q = new URLSearchParams();
@@ -499,6 +655,7 @@ export default function Disparos() {
         quantidade: 0,
         campanhaId: criada.campanha.id,
       });
+      setCards([]);
       setAviso(
         `✓ ${criada.total} lead(s) na fila de geração. ` +
           "Pode fechar esta aba — a geração continua no servidor.",
@@ -603,6 +760,9 @@ export default function Disparos() {
         }
 
         // Fila zerada: para de pedir. Nada mais vai mudar sozinho.
+        // Apareceu card novo pronto: recarrega a revisão para ele surgir na hora.
+        if ((estado?.pronta ?? 0) !== (cards?.length ?? 0)) await carregarCards(campanhaEmGeracao);
+
         if ((estado?.pendente ?? 0) + (estado?.processando ?? 0) === 0) return;
 
         /**
@@ -621,7 +781,75 @@ export default function Disparos() {
       vivo = false;
       if (timer) clearTimeout(timer);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recarregar cards não deve reiniciar o acompanhamento
   }, [campanhaEmGeracao]);
+
+  /**
+   * Ações de UMA mensagem na revisão.
+   *
+   * Todas passam pelas rotas que já existiam — nenhuma escreve no banco por
+   * caminho novo, e nenhuma envia nada. `regenerar` em particular NÃO gera na
+   * hora: devolve o lead para a fila de geração, que é a única que conta cota
+   * e trata 429.
+   */
+  async function acaoCard(mensagemId: string, acao: "aprovar" | "cancelar" | "regenerar") {
+    setOcupado(true);
+    try {
+      const r = await fetch("/api/automacao/mensagens", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: mensagemId, acao }),
+      }).then((x) => x.json());
+      if (r.erro) setAviso(r.erro);
+      else if (acao === "regenerar") setAviso("Voltou para a fila — a IA vai reescrever esta.");
+      if (campanhaPronta) await carregarCards(campanhaPronta.campanhaId);
+      await carregarTudo();
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function salvarEdicao(mensagemId: string) {
+    if (rascunhoTexto.trim().length < 10) {
+      setAviso("A mensagem ficou curta demais.");
+      return;
+    }
+    setOcupado(true);
+    try {
+      const r = await fetch("/api/automacao/mensagens", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: mensagemId, acao: "editar", texto: rascunhoTexto }),
+      }).then((x) => x.json());
+      setAviso(r.erro ?? "Texto salvo. A IA não sobrescreve mensagem editada à mão.");
+      setEditando(null);
+      if (campanhaPronta) await carregarCards(campanhaPronta.campanhaId);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  /** Aprova em lote só o que está pronto — o resto continua em rascunho. */
+  async function aprovarTodasProntas() {
+    const ids = (cards ?? []).filter((c) => c.status === "rascunho").map((c) => c.mensagemId);
+    if (!ids.length) return;
+    setOcupado(true);
+    try {
+      const r = await fetch("/api/automacao/mensagens", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, acao: "aprovar" }),
+      }).then((x) => x.json());
+      setAviso(`${r.alteradas ?? 0} mensagem(ns) aprovada(s) — ainda sem enviar.`);
+      if (campanhaPronta) {
+        await carregarCards(campanhaPronta.campanhaId);
+        setCampanhaPronta((c) => (c ? { ...c, aprovada: true } : c));
+      }
+      await carregarTudo();
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   /**
    * Aprovar é o passo que transforma rascunho em fila — e é o ÚNICO ponto
@@ -672,7 +900,8 @@ export default function Disparos() {
         <div>
           <h1 className="text-[24px] font-semibold sm:text-[28px]">🚀 Disparos</h1>
           <p className="mt-1.5 text-[14px] text-[var(--texto-2)]">
-            Escolha o nicho e a abordagem — a IA escreve uma mensagem própria para cada lead.
+            Escolha o nicho e a abordagem — a IA identifica a oportunidade e escreve uma mensagem
+            para cada lead.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -687,10 +916,46 @@ export default function Disparos() {
       </header>
 
       <p
-        className={`surgir mb-6 rounded-[10px] px-4 py-3 text-center text-[14px] font-medium ${BANNER_POR_ESTADO[estado.codigo]}`}
+        className={`surgir mb-4 rounded-[10px] px-4 py-3 text-center text-[14px] font-medium ${BANNER_POR_ESTADO[estado.codigo]}`}
       >
         {estado.emoji} {estado.label}
       </p>
+
+      {/**
+       * Indicadores da operação inteira, do banco.
+       *
+       * Ficam no topo porque respondem, sem clique nenhum, a pergunta com que
+       * se abre esta tela: *tenho com quem falar hoje?* — e o número que
+       * importa não é "quantos leads eu tenho", é quantos estão ELEGÍVEIS.
+       */}
+      {oportunidades && (
+        <section className="surgir mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {[
+            { r: "Leads", v: oportunidades.totais.leads },
+            { r: "Com WhatsApp", v: oportunidades.totais.comWhatsapp },
+            { r: "Elegíveis", v: oportunidades.totais.elegiveis, destaque: true },
+            { r: "Aguardando IA", v: painel.estados?.["rascunho"] ?? 0 },
+            { r: "Aprovadas", v: (painel.estados?.["aprovada"] ?? 0) + (painel.estados?.["na-fila"] ?? 0) },
+            { r: "Enviadas", v: painel.estados?.["enviada"] ?? 0 },
+          ].map((i) => (
+            <div
+              key={i.r}
+              className={`rounded-[10px] px-2.5 py-2.5 text-center ${
+                i.destaque ? "bg-[var(--azul-fraco)]" : "bg-[var(--superficie)]"
+              }`}
+            >
+              <p
+                className={`text-[19px] font-semibold tabular-nums ${
+                  i.destaque ? "text-[var(--azul)]" : ""
+                }`}
+              >
+                {i.v}
+              </p>
+              <p className="text-[11px] leading-tight text-[var(--texto-3)]">{i.r}</p>
+            </div>
+          ))}
+        </section>
+      )}
 
       {!painel.provedorConfigurado && (
         <p className="surgir mb-6 rounded-[10px] bg-[var(--ambar-fraco)] px-4 py-3 text-[13px] leading-relaxed text-[var(--ambar)]">
@@ -808,36 +1073,252 @@ export default function Disparos() {
                 </span>
               </button>
 
-              {(preview?.segmentos ?? []).map((s) => (
-                <button
-                  key={s.nome}
-                  onClick={() => escolherSegmento(s.nome)}
-                  className={`rounded-[12px] px-3 py-3 text-left capitalize transition ${
-                    nichoEscolhido && segmento === s.nome
-                      ? "bg-[var(--azul)] text-white"
-                      : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
-                  }`}
-                >
-                  <span className="block text-[20px]">{iconeCategoria(s.nome)}</span>
-                  <span className="mt-1 block text-[13px] font-medium">{s.nome}</span>
-                  <span
-                    className={`block text-[12px] ${nichoEscolhido && segmento === s.nome ? "text-white/80" : "text-[var(--texto-3)]"}`}
-                  >
-                    {s.disponivel} de {s.total}
-                  </span>
-                </button>
-              ))}
+              {/**
+               * Três números por card, não um.
+               *
+               * "24 leads" sozinho é a promessa que a fila desmente depois:
+               * sem WhatsApp não há disparo, e quem já foi contatado também
+               * não entra. Mostrar total / com WhatsApp / elegível deixa a
+               * conta visível ANTES de escolher, e a dica de solução diz o que
+               * se vende para aquele ramo.
+               */}
+              {(oportunidades?.segmentos ?? [])
+                .filter((s) => s.elegiveis > 0)
+                .slice(0, 14)
+                .map((s) => {
+                  const ativo = nichoEscolhido && segmento === s.nome;
+                  return (
+                    <button
+                      key={s.nome}
+                      onClick={() => escolherSegmento(s.nome)}
+                      className={`rounded-[12px] px-3 py-3 text-left capitalize transition ${
+                        ativo
+                          ? "bg-[var(--azul)] text-white"
+                          : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
+                      }`}
+                    >
+                      <span className="block text-[20px]">{iconeCategoria(s.nome)}</span>
+                      <span className="mt-1 block text-[13px] font-medium leading-tight">
+                        {s.nome}
+                      </span>
+                      <span
+                        className={`mt-1 block text-[11.5px] leading-snug tabular-nums ${
+                          ativo ? "text-white/80" : "text-[var(--texto-3)]"
+                        }`}
+                      >
+                        {s.total} leads · {s.comWhatsapp} zap
+                        <br />
+                        <strong className={ativo ? "text-white" : "text-[var(--texto-2)]"}>
+                          {s.elegiveis} elegíveis
+                        </strong>
+                      </span>
+                      {s.solucao && (
+                        <span
+                          className={`mt-1.5 block text-[11px] normal-case leading-snug ${
+                            ativo ? "text-white/75" : "text-[var(--azul)]"
+                          }`}
+                        >
+                          💡 {s.solucao}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
             </div>
 
-            {nichoEscolhido && preview && (
-              <p className="mt-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13.5px]">
-                <strong className="capitalize">{nichoLabel}</strong> — {preview.totalNoNicho}{" "}
-                lead{preview.totalNoNicho === 1 ? "" : "s"} encontrado
-                {preview.totalNoNicho === 1 ? "" : "s"}, {preview.disponivel} disponíve
-                {preview.disponivel === 1 ? "l" : "is"} para disparo agora.
+            {carregandoOportunidades && !oportunidades && (
+              <p className="mt-4 text-[13px] text-[var(--texto-3)]">Contando leads…</p>
+            )}
+            {oportunidades && oportunidades.segmentos.filter((s) => s.elegiveis > 0).length === 0 && (
+              <p className="mt-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13px] text-[var(--texto-2)]">
+                Nenhum nicho com lead elegível agora. Busque novos leads em{" "}
+                <Link href="/leads" className="underline">
+                  Leads
+                </Link>{" "}
+                ou inclua já contatados nos filtros.
               </p>
             )}
           </section>
+
+          {/* --- filtros: refina quem entra, e mostra quem ficou de fora --- */}
+          {nichoEscolhido && (
+            <section className="cartao surgir mb-6 p-5">
+              <button
+                onClick={() => setMostrarFiltros((v) => !v)}
+                className="flex w-full items-center justify-between gap-3 text-left"
+              >
+                <span className="text-[15px] font-semibold">🔎 Filtrar oportunidades</span>
+                <span className="text-[13px] text-[var(--texto-3)]">
+                  {mostrarFiltros ? "ocultar" : "abrir"}
+                </span>
+              </button>
+
+              {oportunidades && (
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13.5px]">
+                  <span className="tabular-nums">
+                    <strong>{oportunidades.encontrados}</strong> encontrados
+                  </span>
+                  <span className="tabular-nums text-[var(--azul)]">
+                    <strong>{oportunidades.elegiveis}</strong> elegíveis
+                  </span>
+                  <span className="tabular-nums text-[var(--texto-3)]">
+                    {oportunidades.excluidos} excluídos
+                  </span>
+                  {carregandoOportunidades && (
+                    <span className="text-[12px] text-[var(--texto-3)]">atualizando…</span>
+                  )}
+                </div>
+              )}
+
+              {/**
+               * Os motivos de exclusão, sempre visíveis — não escondidos atrás
+               * do painel de filtros. "31 de 53" sem explicação parece bug; com
+               * a lista, vira informação comercial: 8 já receberam contato, 4
+               * responderam, 3 estão em negociação.
+               */}
+              {oportunidades && oportunidades.recusas.length > 0 && (
+                <ul className="mt-2 space-y-0.5">
+                  {oportunidades.recusas.map((r) => (
+                    <li key={r.motivo} className="text-[12.5px] text-[var(--texto-3)]">
+                      🚫 {r.quantidade} {r.motivo.toLowerCase().replace(/\.$/, "")}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {mostrarFiltros && (
+                <div className="mt-4 space-y-3 border-t border-[var(--linha)] pt-4">
+                  <label className="flex items-center gap-2.5 text-[13.5px]">
+                    <input
+                      type="checkbox"
+                      checked={filtros.somenteWhatsapp}
+                      onChange={(e) =>
+                        setFiltros((f) => ({ ...f, somenteWhatsapp: e.target.checked }))
+                      }
+                    />
+                    Somente com WhatsApp
+                    <span className="text-[12px] text-[var(--texto-3)]">
+                      (sem número não há disparo)
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2.5 text-[13.5px]">
+                    <input
+                      type="checkbox"
+                      checked={filtros.incluirContatados}
+                      onChange={(e) =>
+                        setFiltros((f) => ({ ...f, incluirContatados: e.target.checked }))
+                      }
+                    />
+                    Incluir já contatados
+                  </label>
+
+                  <label className="flex items-center gap-2.5 text-[13.5px]">
+                    <input
+                      type="checkbox"
+                      checked={filtros.comInstagram}
+                      onChange={(e) =>
+                        setFiltros((f) => ({ ...f, comInstagram: e.target.checked }))
+                      }
+                    />
+                    Possui Instagram
+                  </label>
+
+                  <div>
+                    <p className="mb-1.5 text-[13px] font-medium">Site</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(["qualquer", "com", "sem"] as const).map((v) => (
+                        <button
+                          key={v}
+                          onClick={() => setFiltros((f) => ({ ...f, site: v }))}
+                          className={`rounded-[10px] px-3 py-1.5 text-[13px] capitalize transition ${
+                            filtros.site === v
+                              ? "bg-[var(--azul)] text-white"
+                              : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
+                          }`}
+                        >
+                          {v === "qualquer" ? "Qualquer" : v === "com" ? "Com site" : "Sem site"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-4">
+                    <label className="text-[13px]">
+                      <span className="mb-1 block font-medium">Nota mínima</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={5}
+                        step={0.1}
+                        value={filtros.notaMinima}
+                        onChange={(e) =>
+                          setFiltros((f) => ({ ...f, notaMinima: e.target.value }))
+                        }
+                        placeholder="—"
+                        className="w-24 rounded-[10px] bg-[var(--superficie)] px-3 py-1.5 text-[13.5px]"
+                      />
+                    </label>
+                    <label className="text-[13px]">
+                      <span className="mb-1 block font-medium">Avaliações mínimas</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={filtros.avaliacoesMinimas}
+                        onChange={(e) =>
+                          setFiltros((f) => ({ ...f, avaliacoesMinimas: e.target.value }))
+                        }
+                        placeholder="—"
+                        className="w-24 rounded-[10px] bg-[var(--superficie)] px-3 py-1.5 text-[13.5px]"
+                      />
+                    </label>
+                  </div>
+
+                  {/**
+                   * O corte por prioridade usa o score que já existe
+                   * (lib/pontuacao). É PALPITE INTERNO, não dado externo — e o
+                   * texto abaixo diz isso, porque um número de 0 a 100 na tela
+                   * é lido como verdade se ninguém avisar o contrário.
+                   */}
+                  <div>
+                    <p className="mb-1.5 text-[13px] font-medium">🎯 Priorizar oportunidades</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          ["alta", "🔥 Alta"],
+                          ["media", "🟡 Média"],
+                          ["todas", "⚪ Todas"],
+                        ] as const
+                      ).map(([v, r]) => (
+                        <button
+                          key={v}
+                          onClick={() => setFiltros((f) => ({ ...f, prioridade: v }))}
+                          className={`rounded-[10px] px-3 py-1.5 text-[13px] transition ${
+                            filtros.prioridade === v
+                              ? "bg-[var(--azul)] text-white"
+                              : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-[12px] text-[var(--texto-3)]">
+                      Prioridade calculada a partir dos dados do cadastro (ramo, presença digital,
+                      histórico). É palpite interno para ordenar a fila — não é nota do Google.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => setFiltros(FILTROS_PADRAO)}
+                    className="btn-secundario"
+                  >
+                    Limpar filtros
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* --- Passo 2: abordagem --- */}
           {nichoEscolhido && (
@@ -1131,6 +1612,158 @@ export default function Disparos() {
                   : "Cada lead recebe uma mensagem própria, gerada por IA — não é o mesmo texto repetido. A fila roda no servidor: fechar esta aba não interrompe nada."}
               </p>
 
+              {/**
+               * REVISÃO — um card por lead, com o raciocínio da IA à vista.
+               *
+               * Antes só existia o número "20 mensagens" e um botão de aprovar
+               * o lote. Aprovar 20 textos que ninguém leu, para 20 WhatsApp de
+               * estranhos, é o tipo de clique que só se descobre errado depois.
+               * Aqui cada card mostra POR QUE aquele lead, QUAL oportunidade a
+               * IA viu e O QUE ela decidiu oferecer, antes do texto.
+               */}
+              {cards && cards.length > 0 && (
+                <div className="mt-5 border-t border-[var(--linha)] pt-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[14px] font-semibold">
+                      Revisão — {cards.filter((c) => c.status !== "rascunho").length} de{" "}
+                      {cards.length} aprovadas
+                    </p>
+                    {cards.some((c) => c.status === "rascunho") && (
+                      <button
+                        onClick={aprovarTodasProntas}
+                        disabled={ocupado}
+                        className="btn-secundario"
+                      >
+                        ✓ Aprovar todas prontas
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    {cards.map((c) => (
+                      <article
+                        key={c.mensagemId}
+                        className={`rounded-[12px] px-3.5 py-3 ${
+                          c.status === "rascunho"
+                            ? "bg-[var(--superficie)]"
+                            : "bg-[var(--verde-fraco,var(--azul-fraco))]"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <p className="text-[14px] font-semibold">
+                            {iconeCategoria(c.lead.categoria ?? "")} {c.lead.nome}
+                            {c.lead.cidade && (
+                              <span className="font-normal text-[var(--texto-3)]">
+                                {" "}
+                                — {c.lead.cidade}
+                              </span>
+                            )}
+                          </p>
+                          <span className="text-[12.5px] tabular-nums text-[var(--texto-3)]">
+                            {c.emoji} {c.score}/100
+                          </span>
+                        </div>
+
+                        {c.oportunidade && (
+                          <p className="mt-2 text-[12.5px] leading-relaxed">
+                            <span className="text-[var(--texto-3)]">🎯 Oportunidade </span>
+                            {c.oportunidade}
+                          </p>
+                        )}
+                        {c.solucaoRotulo && (
+                          <p className="mt-1 text-[12.5px] leading-relaxed">
+                            <span className="text-[var(--texto-3)]">💡 Solução </span>
+                            {c.solucaoRotulo}
+                          </p>
+                        )}
+
+                        {editando === c.mensagemId ? (
+                          <div className="mt-2.5">
+                            <textarea
+                              value={rascunhoTexto}
+                              onChange={(e) => setRascunhoTexto(e.target.value)}
+                              rows={6}
+                              className="w-full rounded-[10px] bg-[var(--fundo)] px-3 py-2.5 text-[13px] leading-relaxed"
+                            />
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                onClick={() => salvarEdicao(c.mensagemId)}
+                                disabled={ocupado}
+                                className="btn-primario"
+                              >
+                                Salvar
+                              </button>
+                              <button
+                                onClick={() => setEditando(null)}
+                                className="btn-secundario"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-2.5 whitespace-pre-wrap rounded-[10px] bg-[var(--fundo)] px-3 py-2.5 text-[13px] leading-relaxed">
+                            {c.texto}
+                          </p>
+                        )}
+
+                        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                          {c.status === "rascunho" ? (
+                            <>
+                              <button
+                                onClick={() => acaoCard(c.mensagemId, "aprovar")}
+                                disabled={ocupado || editando === c.mensagemId}
+                                className="btn-secundario"
+                              >
+                                ✓ Aprovar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditando(c.mensagemId);
+                                  setRascunhoTexto(c.texto);
+                                }}
+                                disabled={ocupado}
+                                className="btn-secundario"
+                              >
+                                ✎ Editar
+                              </button>
+                              <button
+                                onClick={() => acaoCard(c.mensagemId, "regenerar")}
+                                disabled={ocupado || c.origem === "manual"}
+                                title={
+                                  c.origem === "manual"
+                                    ? "Editada à mão — regenerar apagaria seu texto"
+                                    : "A IA escreve outra versão"
+                                }
+                                className="btn-secundario"
+                              >
+                                ↻ IA
+                              </button>
+                              <button
+                                onClick={() => acaoCard(c.mensagemId, "cancelar")}
+                                disabled={ocupado}
+                                className="ml-auto text-[12.5px] text-[var(--texto-3)] underline"
+                              >
+                                ✕ Rejeitar
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[12.5px] text-[var(--texto-3)]">
+                              ✓ Aprovada — na fila, esperando o worker
+                            </span>
+                          )}
+                          {c.origem === "manual" && (
+                            <span className="text-[11.5px] text-[var(--texto-3)]">
+                              ✎ editada por você
+                            </span>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {!campanhaPronta.aprovada && (
                 <>
                   <button
@@ -1261,6 +1894,55 @@ export default function Disparos() {
         <p className="surgir mb-6 rounded-[10px] bg-[var(--azul-fraco)] px-4 py-2.5 text-[14px] text-[var(--azul)]">
           {aviso}
         </p>
+      )}
+
+      {/**
+       * MINHAS CAMPANHAS — o resultado de cada lote, com números reais.
+       *
+       * "Interessados" não é classificação nova: reaproveita a intenção que
+       * lib/classificar.ts já grava no lead quando ele responde. Criar um
+       * segundo motor de classificação daria dois números divergentes para a
+       * mesma pergunta, e nenhum dos dois seria confiável.
+       */}
+      {campanhasSalvas && campanhasSalvas.length > 0 && (
+        <section className="cartao surgir mb-6 p-5">
+          <p className="mb-3 text-[15px] font-semibold">📁 Minhas campanhas</p>
+          <div className="space-y-2.5">
+            {campanhasSalvas.slice(0, 6).map((c) => (
+              <div key={c.id} className="rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-[13.5px] font-medium">{c.nome}</p>
+                  <span className="text-[12px] text-[var(--texto-3)]">
+                    {new Date(c.criadoEm).toLocaleDateString("pt-BR", {
+                      day: "2-digit",
+                      month: "short",
+                    })}
+                  </span>
+                </div>
+                <p className="mt-1 text-[12.5px] tabular-nums text-[var(--texto-2)]">
+                  {c.total} leads · {c.enviadas} enviadas · {c.respondidas} respostas
+                  {c.interessados > 0 && ` · ${c.interessados} interessados`}
+                  {c.erros > 0 && ` · ${c.erros} erros`}
+                </p>
+                {c.enviadas > 0 && (
+                  <p className="mt-0.5 text-[12px] text-[var(--texto-3)] tabular-nums">
+                    taxa de resposta {c.taxaResposta}%
+                    {c.respondidas > 0 && ` · interesse ${c.taxaInteresse}%`}
+                  </p>
+                )}
+                {c.porIntencao.length > 0 && (
+                  <p className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-[var(--texto-3)]">
+                    {c.porIntencao.map((i) => (
+                      <span key={i.intencao}>
+                        {i.emoji} {i.quantos} {i.rotulo.toLowerCase()}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* --- estados da fila: onde está cada mensagem, sem abrir o banco --- */}

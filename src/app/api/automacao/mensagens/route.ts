@@ -7,6 +7,7 @@ import { montarProposta } from "@/lib/proposta";
 import { resolverSaudacao, reinserirSaudacao } from "@/lib/saudacao";
 import { montarPropostaSistema, avaliarSistema } from "@/lib/sistemas";
 import { avaliar } from "@/lib/oportunidade";
+import { regenerar } from "@/lib/gen/fila-geracao";
 
 /**
  * Mensagens da automação: listar, criar rascunho, aprovar, editar, cancelar.
@@ -163,7 +164,7 @@ export async function PUT(request: Request) {
 
 const Atualizar = z.object({
   id: z.string().uuid(),
-  acao: z.enum(["aprovar", "editar", "cancelar", "marcar-respondida"]),
+  acao: z.enum(["aprovar", "editar", "cancelar", "marcar-respondida", "regenerar"]),
   texto: z.string().min(10).max(4000).optional(),
 });
 
@@ -177,6 +178,16 @@ export async function PATCH(request: Request) {
 
   const [msg] = await db.select().from(mensagens).where(eq(mensagens.id, params.id)).limit(1);
   if (!msg) return NextResponse.json({ erro: "Mensagem não encontrada" }, { status: 404 });
+
+  /**
+   * Regenerar NÃO gera aqui: devolve o lead para a fila de geração, que é a
+   * única que conta cota e trata 429. Ver `regenerar` em lib/gen/fila-geracao.
+   */
+  if (params.acao === "regenerar") {
+    const r = await regenerar(params.id);
+    if (!r.ok) return NextResponse.json({ erro: r.erro }, { status: 409 });
+    return NextResponse.json({ ok: true, refazendo: true });
+  }
 
   // Depois de enviada, editar o texto seria mentir sobre o que foi mandado.
   if (params.acao === "editar" && msg.status !== "rascunho") {
@@ -198,6 +209,11 @@ export async function PATCH(request: Request) {
              * EDIÇÃO numa mensagem que só sai dias depois.
              */
             texto: reinserirSaudacao(params.texto ?? msg.texto),
+            /**
+             * Marca de que este texto é SEU. É o que impede uma regeneração
+             * posterior de apagar seu ajuste sem avisar.
+             */
+            origem: "manual" as const,
           }
         : params.acao === "cancelar"
           ? { status: "cancelada" as const }

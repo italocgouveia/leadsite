@@ -313,7 +313,15 @@ export const mensagens = pgTable(
     /** Qual produto esta abordagem oferece — site, chatbot ou sistema. */
     produto: text("produto"),
     /** Como o texto nasceu: modelo pronto, gerado por IA, ou resposta automática. */
-    origem: text("origem").$type<"modelo" | "ia" | "resposta-automatica">().notNull().default("modelo"),
+    /**
+     * `manual` existe para a IA não sobrescrever o que você reescreveu à mão.
+     * Sem essa marca, uma regeneração de lote apagaria em silêncio o texto que
+     * você ajustou — e você só descobriria pelo que chegou no cliente.
+     */
+    origem: text("origem")
+      .$type<"modelo" | "ia" | "manual" | "resposta-automatica">()
+      .notNull()
+      .default("modelo"),
 
     tentativas: integer("tentativas").notNull().default(0),
     /** Última falha, em texto — para você entender por que não foi. */
@@ -804,6 +812,15 @@ export const geracaoFila = pgTable(
     mensagemId: uuid("mensagem_id").references(() => mensagens.id, { onDelete: "set null" }),
     /** Solução que a IA escolheu — para a tela explicar a abordagem. */
     solucao: text("solucao"),
+    /**
+     * A oportunidade que a IA enxergou neste lead, na frase dela.
+     *
+     * Era gerada e jogada fora — só a solução ficava salva. Mas quem revisa
+     * precisa saber POR QUE aquela solução foi escolhida antes de aprovar uma
+     * mensagem que vai para o WhatsApp de um estranho; sem isso a revisão vira
+     * leitura de texto solto.
+     */
+    oportunidade: text("oportunidade"),
     /** Último motivo de falha ou de pulo, em texto legível. */
     erro: text("erro"),
 

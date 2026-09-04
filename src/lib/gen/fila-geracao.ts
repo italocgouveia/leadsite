@@ -327,6 +327,8 @@ async function gerarItem(
         status: "pronta",
         mensagemId,
         solucao: analise.solucao,
+        // O "porquê" da escolha, para a revisão não ser leitura de texto solto.
+        oportunidade: analise.oportunidade,
         erro: null,
         processandoDesde: null,
         atualizadoEm: new Date(),
@@ -388,6 +390,76 @@ async function fecharPulado(
     .set({ status: "pulada", erro: motivo, processandoDesde: null, atualizadoEm: new Date() })
     .where(eq(geracaoFila.id, item.id));
   return { fim: "pulada", leadId: item.leadId, motivo };
+}
+
+/**
+ * Manda a IA escrever de novo para UM lead.
+ *
+ * Não gera na hora, de propósito: devolve o item para a mesma fila que todo o
+ * resto usa. Gerar direto aqui seria um segundo caminho de geração, com outra
+ * contagem de cota e outro tratamento de 429 — exatamente o tipo de atalho que
+ * depois manda mensagem duplicada.
+ *
+ * A mensagem antiga é CANCELADA, não apagada: ela já foi mostrada na revisão,
+ * e histórico de campanha não some porque alguém pediu outra versão. Cancelar
+ * também é o que libera o índice único de mensagem viva para a nova entrar.
+ *
+ * Recusa mexer em mensagem que você editou à mão (`origem: manual`) — refazer
+ * por cima seria jogar fora seu texto sem avisar.
+ */
+export async function regenerar(
+  mensagemId: string,
+): Promise<{ ok: true } | { ok: false; erro: string }> {
+  const [msg] = await db.select().from(mensagens).where(eq(mensagens.id, mensagemId)).limit(1);
+  if (!msg) return { ok: false, erro: "Mensagem não encontrada." };
+  if (!msg.campanhaId) return { ok: false, erro: "Mensagem fora de campanha." };
+  if (msg.status !== "rascunho") {
+    return { ok: false, erro: "Só dá para regenerar enquanto está em rascunho." };
+  }
+  if (msg.origem === "manual") {
+    return { ok: false, erro: "Esta mensagem foi editada à mão — regenerar apagaria seu texto." };
+  }
+
+  const agora = new Date();
+  await db
+    .update(mensagens)
+    .set({ status: "cancelada", erro: "Substituída por nova geração", atualizadoEm: agora })
+    .where(eq(mensagens.id, mensagemId));
+
+  /**
+   * Devolve o item da fila para `pendente` e zera os contadores: é um pedido
+   * novo, não a continuação das tentativas do anterior.
+   */
+  const [item] = await db
+    .update(geracaoFila)
+    .set({
+      status: "pendente",
+      mensagemId: null,
+      erro: null,
+      tentativas: 0,
+      esperas: 0,
+      processandoDesde: null,
+      proximaTentativaEm: sql`now()`,
+      atualizadoEm: agora,
+    })
+    .where(
+      and(eq(geracaoFila.campanhaId, msg.campanhaId), eq(geracaoFila.leadId, msg.leadId)),
+    )
+    .returning({ id: geracaoFila.id });
+
+  // Campanha antiga, anterior à fila persistente: recria o item.
+  if (!item) {
+    await db
+      .insert(geracaoFila)
+      .values({
+        campanhaId: msg.campanhaId,
+        leadId: msg.leadId,
+        prioridade: msg.prioridade,
+      })
+      .onConflictDoNothing();
+  }
+
+  return { ok: true };
 }
 
 export type ResumoLote = {
