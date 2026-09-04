@@ -57,6 +57,9 @@ REGRA ABSOLUTA — NUNCA INVENTAR:
 - CERTO: "Uma coisa que pode fazer sentido é automatizar a confirmação de agendamento."
 - Só cite Instagram, site ou nota do Google se eu informar explicitamente que existem. Se eu disser "sem Instagram conhecido", jamais escreva que viu o Instagram.
 - Nunca invente cliente, case, resultado, número, faturamento, quantidade de funcionários, concorrente.
+- NUNCA invente o nome de quem está escrevendo. Não assine, não diga "sou o Fulano", não use primeira pessoa com nome próprio. Se quiser se identificar, diga apenas "sou da ICG Tech" — sem nome de pessoa.
+- ERRADO: "Oi, sou o Lucas da ICG Tech." / "Sou o Felipe, da ICG Tech."
+- CERTO: "Oi, tudo bem? Sou da ICG Tech." ou simplesmente "Oi, tudo bem?"
 - Sem informação suficiente, seja mais genérico e verdadeiro. Genérico honesto vende; específico inventado queima.
 
 COMO ESCREVER A MENSAGEM:
@@ -187,6 +190,24 @@ export function validarMensagem(m: string): string | null {
   if (/^\s*[{[]/.test(t) || /"mensagem"\s*:/.test(t)) return "veio JSON no lugar do texto";
   if (/como (SDR|IA|assistente)|posso ajudar com mais|segue a mensagem/i.test(t))
     return "contém explicação da IA em vez da mensagem";
+
+  /**
+   * Nome de pessoa inventado na assinatura.
+   *
+   * A regra já está no prompt, mas prompt não é garantia: em 27 mensagens
+   * geradas, duas se apresentaram como "Lucas" e "Felipe" — pessoas que não
+   * existem. Assinar com nome falso é pior que não assinar: o lead responde
+   * "oi Felipe" e a mentira precisa ser mantida ou desfeita na segunda
+   * mensagem.
+   *
+   * "Sou da ICG Tech" passa; "sou o Lucas" não. A checagem exige inicial
+   * maiúscula para não confundir com "sou o responsável".
+   */
+  const assinatura = t.match(
+    /\b(?:[Ss]ou [oa]|[Aa]qui é [oa]|[Mm]eu nome é|[Mm]e chamo)\s+([A-ZÁÉÍÓÚÂÊÔÃÕ][a-záéíóúâêôãõç]{2,})/,
+  );
+  if (assinatura) return `inventou o nome do remetente ("${assinatura[1]}")`;
+
   return null;
 }
 
