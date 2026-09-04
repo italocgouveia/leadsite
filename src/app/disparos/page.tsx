@@ -6,6 +6,7 @@ import type { Lead, StatusMensagem } from "@/lib/db/schema";
 import { categoriaSingular, iconeCategoria } from "@/lib/categoria-nome";
 import type { PreviaFiltrada } from "@/lib/disparo";
 import { OPCOES_ABORDAGEM, type Abordagem } from "@/lib/abordagem";
+import { MENSAGEM_BASE } from "@/lib/mensagem-universal";
 
 /**
  * Disparos automáticos — a ÚNICA tela para preparar, iniciar, pausar e
@@ -281,9 +282,13 @@ export default function Disparos() {
   const [nichoEscolhido, setNichoEscolhido] = useState(false);
   const [preview, setPreview] = useState<PreviaFiltrada | null>(null);
 
-  // ---------- passo 2: abordagem (define a oferta que a IA vai propor) ----------
-  const [abordagem, setAbordagem] = useState<Abordagem>("");
-  const [abordagemEscolhida, setAbordagemEscolhida] = useState(false);
+  /**
+   * A abordagem deixou de ser escolha: a primeira mensagem e universal.
+   *
+   * O estado sobrevive vazio porque `filtro` da campanha ainda o registra —
+   * util para saber depois com que configuracao o lote foi criado.
+   */
+  const abordagem: Abordagem = "";
 
   // ---------- prévia: mensagens reais geradas por IA, antes de preparar tudo ----------
   const [amostras, setAmostras] = useState<Amostra[] | null>(null);
@@ -314,13 +319,6 @@ export default function Disparos() {
     setSegmento(v);
     setQuantidade(null);
     setNichoEscolhido(true);
-    setAmostras(null);
-    setCampanhaPronta(null);
-  }
-
-  function escolherAbordagem(v: Abordagem) {
-    setAbordagem(v);
-    setAbordagemEscolhida(true);
     setAmostras(null);
     setCampanhaPronta(null);
   }
@@ -662,8 +660,6 @@ export default function Disparos() {
       );
       setSegmento("");
       setNichoEscolhido(false);
-      setAbordagem("");
-      setAbordagemEscolhida(false);
       setAmostras(null);
       await Promise.all([carregarTudo(), carregarPreview()]);
     } catch (e) {
@@ -1320,44 +1316,38 @@ export default function Disparos() {
             </section>
           )}
 
-          {/* --- Passo 2: abordagem --- */}
+          {/**
+           * Passo 2 deixou de ser uma ESCOLHA.
+           *
+           * Antes havia quatro botões (Automático / Site / Chatbot / Sistema) e
+           * a IA decidia um produto por lead. Na primeira mensagem não existe
+           * contexto para essa decisão: era palpite pelo ramo, escrito com cara
+           * de constatação. Agora a abertura é a mesma para todos, e a escolha
+           * de solução acontece depois da resposta, com o lead dizendo como
+           * trabalha (ver lib/diagnostico e lib/proxima-acao).
+           */}
           {nichoEscolhido && (
             <section className="cartao surgir mb-6 p-5">
-              <p className="mb-1 text-[15px] font-semibold">Passo 2 — Escolha a abordagem</p>
-              <p className="mb-4 text-[13px] text-[var(--texto-2)]">
-                Define o que a IA vai oferecer. A mensagem em si é escrita individualmente para
-                cada lead — isto só define a oferta.
-              </p>
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {OPCOES_ABORDAGEM.map((o) => (
-                  <button
-                    key={o.valor}
-                    onClick={() => escolherAbordagem(o.valor)}
-                    className={`rounded-[12px] px-3.5 py-3 text-left transition ${
-                      abordagemEscolhida && abordagem === o.valor
-                        ? "bg-[var(--azul)] text-white"
-                        : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
-                    }`}
-                  >
-                    <span className="text-[14px] font-medium">
-                      {o.emoji} {o.rotulo}
-                    </span>
-                    <span
-                      className={`block text-[12px] ${
-                        abordagemEscolhida && abordagem === o.valor ? "text-white/80" : "text-[var(--texto-3)]"
-                      }`}
-                    >
-                      {o.descricao}
-                    </span>
-                  </button>
-                ))}
+              <p className="mb-1 text-[15px] font-semibold">Passo 2 — Abordagem</p>
+              <div className="mt-3 rounded-[12px] bg-[var(--azul-fraco)] px-3.5 py-3">
+                <p className="text-[14px] font-medium text-[var(--azul)]">📣 Universal</p>
+                <p className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--texto-2)]">
+                  Mensagem padrão para todos os leads. Personalização: nome da empresa.
+                </p>
               </div>
+              <p className="mt-3 whitespace-pre-wrap rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13px] leading-relaxed">
+                {MENSAGEM_BASE}
+              </p>
+              <p className="mt-2 text-[12px] text-[var(--texto-3)]">
+                Sem IA nesta etapa — a mesma copy para todos, trocando só{" "}
+                <code className="text-[var(--texto-2)]">[NOME_EMPRESA]</code>. A inteligência
+                comercial (dor, solução, proposta) entra depois que o lead responder.
+              </p>
             </section>
           )}
 
           {/* --- prévia + preparar fila --- */}
-          {nichoEscolhido && abordagemEscolhida && preview && (
+          {nichoEscolhido && preview && (
             <section className="cartao surgir mb-6 p-5">
               <p className="mb-3 text-[15px] font-semibold">Campanha</p>
               <dl className="space-y-2.5 text-[13.5px]">

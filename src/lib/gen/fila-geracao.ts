@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { db, geracaoFila, mensagens, leads, campanhas, eventos, type Lead } from "@/lib/db";
+import { db, geracaoFila, mensagens, leads, eventos, type Lead } from "@/lib/db";
 import { lerConfig, podeContatar } from "@/lib/fila";
 import { pontuar } from "@/lib/pontuacao";
 import { gerarMensagemProspeccao } from "@/lib/gen/mensagem-prospeccao";
+import { montarMensagemUniversal } from "@/lib/mensagem-universal";
 
 /**
  * O motor da fila de geração por IA.
@@ -171,13 +172,18 @@ export type ResultadoItem =
   | { fim: "adiada"; leadId: string; motivo: string };
 
 /**
- * Quem escreve a mensagem. Em produção é sempre `gerarMensagemProspeccao`.
+ * Escritor alternativo da mensagem. Em produção NUNCA é passado.
  *
- * O parâmetro existe para os testes conseguirem provocar 429, timeout e falha
- * de parsing SEM chamar o Gemini de verdade — de outro jeito não haveria como
- * verificar o caminho da cota a não ser esperando a cota estourar sozinha, que
- * é justamente o cenário que a gente não controla. Nenhum chamador de produção
- * passa este argumento; o padrão é o gerador real.
+ * Sem ele, a primeira abordagem é a copy universal — determinística, sem IA e
+ * sem cota. Com ele, os testes conseguem provocar 429, timeout e JSON quebrado
+ * para verificar que o backoff, o retry e a retenção de lead continuam
+ * inteiros; de outro jeito só dava para testar esses caminhos esperando a cota
+ * estourar sozinha, que é justamente o que não se controla.
+ *
+ * Note que essa maquinaria de cota ficou DORMENTE para a primeira mensagem:
+ * ela existe e está testada, mas nenhum caminho de produção a exercita hoje.
+ * Fica de pé porque a IA volta a escrever quando houver contexto — depois da
+ * resposta do lead.
  */
 export type Gerador = typeof gerarMensagemProspeccao;
 
@@ -192,7 +198,7 @@ export type Gerador = typeof gerarMensagemProspeccao;
  */
 export async function processarItem(
   item: typeof geracaoFila.$inferSelect,
-  gerar: Gerador = gerarMensagemProspeccao,
+  gerar?: Gerador,
 ): Promise<ResultadoItem> {
   /**
    * Rede de segurança em volta de TUDO que acontece depois da reserva.
@@ -226,7 +232,7 @@ export async function processarItem(
 
 async function gerarItem(
   item: typeof geracaoFila.$inferSelect,
-  gerar: Gerador,
+  gerar?: Gerador,
 ): Promise<ResultadoItem> {
   const agora = new Date();
 
@@ -257,16 +263,39 @@ async function gerarItem(
   const check = await podeContatar(lead, cfg);
   if (!check.pode) return fecharPulado(item, check.motivo);
 
-  const [campanha] = await db
-    .select({ produto: campanhas.produto })
-    .from(campanhas)
-    .where(eq(campanhas.id, item.campanhaId))
-    .limit(1);
-
   try {
-    const analise = await gerar(lead, {
-      produto: (campanha?.produto ?? undefined) as never,
-    });
+    /**
+     * PRIMEIRA ABORDAGEM É DETERMINÍSTICA — o Gemini não é chamado aqui.
+     *
+     * Antes, cada lead ia para a IA escolher produto e escrever um argumento
+     * próprio. O problema não era técnico: na primeira mensagem não existe
+     * contexto real do negócio, então o "argumento personalizado" era palpite
+     * a partir do ramo, escrito com a confiança de quem constatou algo.
+     *
+     * A inteligência comercial continua inteira e entra DEPOIS da resposta,
+     * quando há o que analisar (ver lib/proxima-acao, lib/diagnostico,
+     * lib/objecoes). Aqui vai a mesma copy para todos, com o nome da empresa.
+     *
+     * Efeito colateral bem-vindo: gerar campanha deixou de consumir cota. Um
+     * lote de 30 leads passou de 30 chamadas de IA para zero, e parou de
+     * depender de 429, retry e backoff para simplesmente existir.
+     *
+     * O parâmetro `gerar` continua na assinatura porque os testes de
+     * concorrência da fila o injetam — mas nenhum caminho de produção o usa
+     * para a primeira mensagem.
+     */
+    const analise = gerar
+      ? await gerar(lead, {})
+      : {
+      mensagem: montarMensagemUniversal(lead),
+      /**
+       * Sem produto e sem oportunidade: a primeira mensagem não escolhe o que
+       * vender. Gravar um palpite aqui faria a revisão exibir uma decisão
+       * comercial que ninguém tomou.
+       */
+      solucao: null as string | null,
+      oportunidade: null as string | null,
+    };
 
     /**
      * `ON CONFLICT DO NOTHING`, apoiado no índice único parcial
@@ -335,7 +364,8 @@ async function gerarItem(
       })
       .where(eq(geracaoFila.id, item.id));
 
-    return { fim: "pronta", leadId: lead.id, solucao: analise.solucao };
+    // Vazio: a primeira abordagem não escolhe solução. Ver a nota acima.
+    return { fim: "pronta", leadId: lead.id, solucao: analise.solucao ?? "" };
   } catch (e) {
     const motivo = e instanceof Error ? e.message : "erro desconhecido";
 
