@@ -3,6 +3,8 @@ import { db, leads, mensagens, campanhas, configuracoes, conversas, eventos, typ
 import { estadoIntegracao, lerConfigProvedor } from "@/lib/integracao";
 import { provedorDe } from "@/lib/providers";
 import { resolverSaudacao } from "@/lib/saudacao";
+// Reuso: a classificação celular/fixo e o nono dígito já vivem aqui.
+import { validarTelefone } from "@/lib/telefone";
 
 /** Separado para os testes conseguirem fixar a hora sem mexer no relógio. */
 const agoraDoEnvio = () => new Date();
@@ -355,14 +357,14 @@ export async function podeContatar(
    * enxergaria a PRÓPRIA mensagem que vai sair e recusaria o lead. Efeito
    * medido: `proximaDaFila` devolvia `null` sempre, e nenhum envio acontecia.
    */
-  ignorarMensagemId?: string,
+  opcoes?: string | OpcoesContato,
 ): Promise<Bloqueio> {
   const historico = await db
     .select({ id: mensagens.id, status: mensagens.status, enviadaEm: mensagens.enviadaEm })
     .from(mensagens)
     .where(eq(mensagens.leadId, lead.id));
 
-  return avaliarContato(lead, cfg, historico, ignorarMensagemId);
+  return avaliarContato(lead, cfg, historico, opcoes);
 }
 
 /** O histórico de mensagens de um lead, no mínimo que as regras precisam. */
@@ -382,17 +384,62 @@ export type HistoricoLead = {
  * é pior: duas cópias divergem, e a que divergir em silêncio é a que manda
  * mensagem para quem pediu para não receber.
  */
+/**
+ * Duas perguntas diferentes, e a resposta muda conforme qual está sendo feita.
+ *
+ * "Posso ENVIAR esta mensagem agora?" e "este lead pode ENTRAR numa campanha
+ * nova?" não são a mesma coisa. Um rascunho pendente de outra campanha impede
+ * criar mais uma mensagem para a pessoa, mas não impede enviar a que já foi
+ * aprovada. Tratar as duas com a mesma regra travaria o envio por causa de um
+ * rascunho que ninguém aprovou.
+ */
+export type OpcoesContato = {
+  /** A mensagem sendo avaliada não conta contra ela mesma. */
+  ignorarMensagemId?: string;
+  /**
+   * Avaliando ENTRADA em campanha nova. Liga duas regras a mais: rascunho
+   * pendente bloqueia, e telefone claramente fixo bloqueia.
+   */
+  paraNovaCampanha?: boolean;
+};
+
 export function avaliarContato(
   lead: Lead,
   cfg: Config,
   todas: HistoricoLead,
-  ignorarMensagemId?: string,
+  opcoes?: string | OpcoesContato,
 ): Bloqueio {
+  // Compatibilidade: a assinatura antiga recebia o id direto como 4º argumento.
+  const op: OpcoesContato = typeof opcoes === "string" ? { ignorarMensagemId: opcoes } : (opcoes ?? {});
+  const ignorarMensagemId = op.ignorarMensagemId;
+
   if (lead.naoContatar) {
     return { pode: false, motivo: "Lead marcado como não contatar." };
   }
   if (!lead.whatsapp) {
     return { pode: false, motivo: "Lead sem WhatsApp." };
+  }
+
+  /**
+   * Telefone claramente FIXO não entra em campanha nova.
+   *
+   * `linkWhatsapp` monta wa.me até para fixo, de propósito: muito comércio usa
+   * WhatsApp Business num número fixo. Só que na prática esses leads chegavam
+   * até a Bridge e voltavam "não tem WhatsApp" — gastando uma vaga do teto
+   * diário para descobrir algo que o formato do número já sugeria.
+   *
+   * Isto NÃO afirma que celular tem WhatsApp: formato não prova conta. Quem
+   * confirma continua sendo o envio. O que muda é só não gastar o teto do dia
+   * com um número que quase nunca responde.
+   */
+  if (op.paraNovaCampanha) {
+    const tel = validarTelefone(numeroDoLead(lead) ?? lead.telefone);
+    if (!tel) {
+      return { pode: false, motivo: "Telefone inválido." };
+    }
+    if (tel.tipo === "fixo") {
+      return { pode: false, motivo: "Telefone fixo." };
+    }
   }
 
   const historico = ignorarMensagemId
@@ -418,6 +465,21 @@ export function avaliarContato(
   // Já existe algo aguardando envio: não empilha duas para o mesmo lead.
   if (historico.some((m) => m.status === "na-fila" || m.status === "aprovada")) {
     return { pode: false, motivo: "Já tem mensagem aguardando envio." };
+  }
+
+  /**
+   * Rascunho pendente bloqueia CAMPANHA NOVA, mas nunca o envio.
+   *
+   * Um rascunho é trabalho vivo: alguém vai revisar e aprovar. Gerar uma
+   * segunda mensagem para a mesma pessoa cria o par que depois se bloqueia —
+   * foi assim que 26 leads ficaram travados em 04/09.
+   *
+   * Fora do caminho de campanha nova, ele é ignorado de propósito: bloquear o
+   * envio de uma mensagem aprovada porque existe um rascunho solto em outra
+   * campanha seria travar por causa de trabalho que ninguém aprovou.
+   */
+  if (op.paraNovaCampanha && historico.some((m) => m.status === "rascunho")) {
+    return { pode: false, motivo: "Já tem mensagem aguardando revisão." };
   }
 
   return { pode: true };

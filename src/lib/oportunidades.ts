@@ -139,7 +139,14 @@ export async function oportunidades(
     if (!ETAPAS_ANTES_DO_CONTATO.includes(lead.etapa)) {
       return { pode: false, motivo: "Já está adiante no funil" };
     }
-    const check = avaliarContato(lead, cfg, porLead.get(lead.id) ?? []);
+    /**
+     * `paraNovaCampanha`: esta tela decide quem ENTRA numa campanha nova, e
+     * essa pergunta e mais estrita que "posso enviar agora" — telefone fixo e
+     * rascunho pendente contam aqui e nao contam no envio.
+     */
+    const check = avaliarContato(lead, cfg, porLead.get(lead.id) ?? [], {
+      paraNovaCampanha: true,
+    });
     return check.pode ? { pode: true } : { pode: false, motivo: check.motivo };
   };
 

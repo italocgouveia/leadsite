@@ -202,9 +202,15 @@ async function main() {
 
   const incluindo = await oportunidades({ incluirContatados: true }, 200);
   ok(
-    "10. 'incluir já contatados' traz de volta",
-    meus(incluindo).length > meus(depoisResposta).length,
-    `${meus(depoisResposta).length} → ${meus(incluindo).length}`,
+    /**
+     * Compara o TOTAL de elegíveis, não quantos leads de teste aparecem na
+     * lista. A lista vem cortada nos melhores por score, então quantos dos
+     * sintéticos cabem nela depende de quantos leads reais existem — é
+     * afirmação sobre a base, não sobre o filtro.
+     */
+    "10. 'incluir já contatados' aumenta o total de elegíveis",
+    incluindo.elegiveis > depoisResposta.elegiveis,
+    `${depoisResposta.elegiveis} → ${incluindo.elegiveis}`,
   );
 
   console.log("\n=== C. PRIORIDADE E QUANTIDADE ===");

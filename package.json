@@ -44,7 +44,8 @@
     "test:comercial": "tsx src/lib/__testes__/comercial.test-manual.ts",
     "test:comercial-db": "tsx src/lib/__testes__/comercial-db.test-manual.ts",
     "test:painel-comercial": "tsx src/lib/__testes__/painel-comercial.test-manual.ts",
-    "test:universal": "tsx src/lib/__testes__/mensagem-universal.test-manual.ts"
+    "test:universal": "tsx src/lib/__testes__/mensagem-universal.test-manual.ts",
+    "test:elegibilidade": "tsx src/lib/__testes__/elegibilidade.test-manual.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

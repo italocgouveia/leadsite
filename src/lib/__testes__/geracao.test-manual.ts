@@ -193,7 +193,7 @@ async function main() {
   );
 
   console.log("\n=== 4. 429 do Gemini: adia, não perde o lead ===");
-  const c429 = await campanhaDeTeste(novos.slice(0, 3));
+  const c429 = await campanhaDeTeste(3);
   const r429 = await processarLote({ campanhaId: c429, max: 3, gerar: gerador429 });
   const e429 = await estadoGeracao(c429);
   ok("lote parou na primeira cota", r429.pausadoPorCota, `adiadas=${r429.adiadas}`);
@@ -231,7 +231,7 @@ async function main() {
   );
 
   console.log("\n=== 6. falha real: 3 tentativas e para (sem retry infinito) ===");
-  const cErro = await campanhaDeTeste(novos.slice(3, 4));
+  const cErro = await campanhaDeTeste(1);
   for (let volta = 1; volta <= MAX_TENTATIVAS + 2; volta++) {
     await db
       .update(geracaoFila)
@@ -248,7 +248,7 @@ async function main() {
   ok("NÃO caiu no motor antigo (nenhuma mensagem criada)", await semMensagens(cErro));
 
   console.log("\n=== 7. dois workers na MESMA fila ===");
-  const cCorrida = await campanhaDeTeste(novos);
+  const cCorrida = await campanhaDeTeste(5);
   const [wA, wB] = await Promise.all([reservarItem({ campanhaId: cCorrida }), reservarItem({ campanhaId: cCorrida })]);
   ok(
     "cada worker pegou um item DIFERENTE",
@@ -278,7 +278,7 @@ async function main() {
   );
 
   console.log("\n=== 9. timeout / processo morto no meio ===");
-  const cPreso = await campanhaDeTeste(novos.slice(0, 2));
+  const cPreso = await campanhaDeTeste(2);
   const reservado = await reservarItem({ campanhaId: cPreso });
   // Simula o processo que morreu: item fica em `processando` e ninguém volta.
   await db
@@ -303,7 +303,7 @@ async function main() {
   ok("depois de recuperado, gera normalmente", rRec.geradas === 2, `geradas=${rRec.geradas}`);
 
   console.log("\n=== 10. reinício do processo no meio da campanha ===");
-  const cReinicio = await campanhaDeTeste(novos);
+  const cReinicio = await campanhaDeTeste(5);
   await processarLote({ campanhaId: cReinicio, max: 2, gerar: geradorBom });
   const meio = await estadoGeracao(cReinicio);
   // "Reiniciar" aqui = simplesmente chamar de novo, como um processo novo faria.
@@ -319,7 +319,12 @@ async function main() {
   const todas = await db
     .select()
     .from(mensagens)
-    .where(inArray(mensagens.leadId, novos.map((l) => l.id)));
+    .where(
+      inArray(
+        mensagens.leadId,
+        (await db.select({ id: leads.id }).from(leads).where(like(leads.placeId, `${MARCA}:%`))).map((l) => l.id),
+      ),
+    );
   ok(
     `${todas.length} mensagem(ns) criadas, TODAS em rascunho`,
     todas.every((m) => m.status === "rascunho" && m.enviadaEm === null),
@@ -343,11 +348,42 @@ async function main() {
   process.exit(falhou ? 1 : 0);
 }
 
-async function campanhaDeTeste(alvos: typeof leads.$inferSelect[]) {
+/**
+ * Cria uma campanha com leads NOVOS, exclusivos dela.
+ *
+ * Antes esta função recebia leads já usados em outro cenário, e isso deixou de
+ * funcionar quando a elegibilidade passou a impedir que um lead com mensagem
+ * pendente entre em campanha nova — a regra correta, e o motivo de existirem
+ * duplicatas travando a fila em produção. Reaproveitar lead entre cenários
+ * virou justamente o caso que o sistema recusa, então cada cenário ganha os
+ * seus.
+ */
+async function campanhaDeTeste(quantos: number) {
+  const marca = crypto.randomUUID().slice(0, 8);
   const [c] = await db
     .insert(campanhas)
-    .values({ nome: `${MARCA} — ${crypto.randomUUID().slice(0, 8)}`, status: "rascunho" })
+    .values({ nome: `${MARCA} — ${marca}`, status: "rascunho" })
     .returning();
+
+  const alvos = await db
+    .insert(leads)
+    .values(
+      Array.from({ length: quantos }, (_, i) => ({
+        placeId: `${MARCA}:${marca}:${i}`,
+        nome: `${MARCA} ${marca}-${i}`,
+        categoria: "clinic",
+        cidade: "Uberlândia",
+        // Celular válido: fixo não entraria mais em campanha nova.
+        whatsapp: `https://wa.me/55119${String(10000000 + i).slice(0, 8)}`,
+        etapa: "novo" as const,
+        fotos: [],
+        statusSite: "sem-site" as never,
+        score: 60 - i,
+        temperatura: "morno" as const,
+      })),
+    )
+    .returning();
+
   await enfileirar(c.id, alvos);
   return c.id;
 }

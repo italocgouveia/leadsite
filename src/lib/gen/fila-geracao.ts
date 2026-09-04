@@ -260,7 +260,8 @@ async function gerarItem(
   if (!lead) return fecharPulado(item, "Lead não existe mais.");
 
   const cfg = await lerConfig();
-  const check = await podeContatar(lead, cfg);
+  // Mesma regra da tela: quem nao entraria na campanha nao vira mensagem.
+  const check = await podeContatar(lead, cfg, { paraNovaCampanha: true });
   if (!check.pode) return fecharPulado(item, check.motivo);
 
   try {
