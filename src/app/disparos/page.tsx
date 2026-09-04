@@ -197,6 +197,8 @@ export default function Disparos() {
   const [amostras, setAmostras] = useState<Amostra[] | null>(null);
   const [gerandoAmostras, setGerandoAmostras] = useState(false);
 
+  /** Null = ainda não escolheu; cai no padrão (o teto diário). */
+  const [quantidade, setQuantidade] = useState<number | null>(null);
   const [preparando, setPreparando] = useState(false);
   const [campanhaPronta, setCampanhaPronta] = useState<CampanhaPronta | null>(null);
   /** Resultado da checagem de pré-voo, preenchido ao pedir para iniciar. */
@@ -204,6 +206,7 @@ export default function Disparos() {
 
   function escolherSegmento(v: string) {
     setSegmento(v);
+    setQuantidade(null);
     setNichoEscolhido(true);
     setAmostras(null);
     setCampanhaPronta(null);
@@ -465,7 +468,7 @@ export default function Disparos() {
    * quando você aprova.
    */
   async function prepararFila() {
-    if (!preview || preview.disponivel === 0) return;
+    if (!preview || preview.disponivel === 0 || quantidadeEfetiva === 0) return;
     setPreparando(true);
     try {
       const data = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
@@ -476,7 +479,8 @@ export default function Disparos() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nome,
-          leadIds: preview.leadIds,
+          // Só o lote escolhido — não tudo que a prévia devolveu.
+          leadIds: preview.leadIds.slice(0, quantidadeEfetiva),
           produto: abordagem || undefined,
           filtro: { segmento, abordagem },
         }),
@@ -511,6 +515,28 @@ export default function Disparos() {
       setPreparando(false);
     }
   }
+
+  /**
+   * Opções de tamanho do lote, sempre limitadas ao que existe de verdade.
+   *
+   * Ancoradas no teto diário de envio, não em números redondos: é ele que
+   * define quantas mensagens têm serventia hoje. Gerar muito além disso é
+   * gastar cota de IA para produzir mensagem que vai envelhecer na fila.
+   */
+  const opcoesQuantidade = (() => {
+    const disp = preview?.disponivel ?? 0;
+    const teto = config.limiteDiario;
+    const brutas = [teto, teto * 2, teto * 5, disp];
+    return [...new Set(brutas.map((n) => Math.min(n, disp)).filter((n) => n > 0))].sort(
+      (a, b) => a - b,
+    );
+  })();
+
+  /** O que vale agora: a escolha, ou o padrão (teto diário), sempre capado. */
+  const quantidadeEfetiva = Math.min(
+    quantidade ?? config.limiteDiario,
+    preview?.disponivel ?? 0,
+  );
 
   /** Campanha cuja geração ainda vale acompanhar. Null = nada a fazer aqui. */
   const campanhaEmGeracao =
@@ -874,6 +900,41 @@ export default function Disparos() {
                 </div>
               </dl>
 
+              {/**
+               * Quantos leads entram NESTA campanha.
+               *
+               * Antes não existia: o botão mandava tudo que a prévia devolvia,
+               * até 300. E 300 é um pedido que não se realiza — é uma chamada
+               * de IA por lead (a cota gratuita não cobre) para alimentar um
+               * teto de envio de 30/dia. O resultado prático foi uma fila de
+               * 300 itens travada e nenhuma mensagem para aprovar.
+               *
+               * O padrão é o teto diário: o lote que de fato sai hoje.
+               */}
+              <div className="mt-4 border-t border-[var(--linha)] pt-4">
+                <p className="mb-2 text-[13px] font-medium">Quantos leads nesta campanha</p>
+                <div className="flex flex-wrap gap-2">
+                  {opcoesQuantidade.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => setQuantidade(q)}
+                      className={`rounded-[10px] px-3.5 py-2 text-[13.5px] font-medium tabular-nums transition ${
+                        quantidadeEfetiva === q
+                          ? "bg-[var(--azul)] text-white"
+                          : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
+                      }`}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-[12px] text-[var(--texto-3)]">
+                  {quantidadeEfetiva > config.limiteDiario
+                    ? `Seu teto de envio é ${config.limiteDiario}/dia — o que passar disso fica esperando na fila.`
+                    : `Cabe no seu teto de ${config.limiteDiario}/dia. É uma chamada de IA por lead.`}
+                </p>
+              </div>
+
               <div className="mt-4 border-t border-[var(--linha)] pt-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="text-[13px] font-medium">Prévia das mensagens (geradas por IA)</p>
@@ -949,9 +1010,7 @@ export default function Disparos() {
                 disabled={preparando || preview.disponivel === 0}
                 className="btn-primario mt-5 w-full !py-3.5 !text-[16px]"
               >
-                {preparando
-                  ? "Enfileirando…"
-                  : `GERAR MENSAGENS (${preview.disponivel} leads)`}
+                {preparando ? "Enfileirando…" : `GERAR MENSAGENS (${quantidadeEfetiva} leads)`}
               </button>
               <p className="mt-2 text-center text-[12px] text-[var(--texto-3)]">
                 Os leads entram numa fila no servidor. A geração roda sozinha, uma chamada de IA

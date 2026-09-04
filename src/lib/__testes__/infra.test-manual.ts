@@ -50,6 +50,8 @@ async function responde(url: string, ms = 5000) {
 
 async function main() {
   const cfg0 = (await db.select().from(configuracoes).limit(1))[0];
+  /** Fila real do usuario antes do teste — o teste nao pode mexer nela. */
+  const filaAntes = (await estadoGeracao()).total;
   const automacaoOriginal = cfg0.automacaoAtiva;
   const limiteOriginal = cfg0.limiteDiario;
   await limpar();
@@ -221,8 +223,17 @@ async function main() {
   );
   ok("nada foi enviado durante o teste inteiro", (await enviadasHoje()) === 0, `enviadas hoje: ${await enviadasHoje()}`);
 
+  /**
+   * Compara com o ANTES, nao com zero. Exigir fila vazia era uma suposicao
+   * sobre a maquina, nao sobre o codigo: assim que existiu campanha real
+   * esperando geracao, o teste passou a acusar falha sem nada ter quebrado.
+   */
   const ger = await estadoGeracao();
-  ok("fila de geração não foi poluída", ger.total === 0, JSON.stringify(ger));
+  ok(
+    "fila de geração real intacta (o teste não adicionou nem removeu nada)",
+    ger.total === filaAntes,
+    `antes=${filaAntes} depois=${ger.total}`,
+  );
 
   await limpar();
   console.log(`\n${passou} PASS, ${falhou} FAIL. Dados de teste removidos.`);
