@@ -33,7 +33,24 @@ export type Modulo =
   | "pedidos"
   | "cardapio"
   | "reservas"
-  | "fidelidade";
+  | "fidelidade"
+  /**
+   * Módulos que nomeiam o OBJETO do negócio, não uma função genérica.
+   *
+   * "Clientes" serve para qualquer ramo e por isso não diz nada. Quem tem pet
+   * shop reconhece "ficha do pet"; quem tem lava-jato pensa em placa, não em
+   * "cliente"; imobiliária trabalha imóvel e visita. Falar o objeto certo é a
+   * diferença entre a mensagem parecer feita para aquele negócio ou parecer
+   * modelo — e essa diferença é o que faz responderem.
+   */
+  | "pets"
+  | "veiculos"
+  | "imoveis"
+  | "visitas"
+  | "quartos"
+  | "hospedes"
+  /** Chamar de volta quem sumiu: o dinheiro que já está na base e ninguém busca. */
+  | "retorno";
 
 export type EncaixeSistema = {
   /** Este ramo tem operação que um sistema organiza? */
@@ -64,14 +81,37 @@ const PERFIS: Record<string, Perfil> = {
     dor: "montar orçamento no papel e depois não achar o histórico do carro quando o cliente volta",
   },
   car_wash: {
-    sistema: "Sistema de agendamento para lava-jato",
-    modulos: ["agendamento", "clientes", "historico", "financeiro", "comissao"],
-    dor: "controlar a agenda do dia no caderno e conferir a comissão da equipe no fim do mês na mão",
+    sistema: "Sistema de clientes, veículos e retorno para lava-jato",
+    modulos: ["clientes", "veiculos", "historico", "retorno", "agendamento", "financeiro"],
+    dor: "não saber quem lavou o carro há um mês e nunca chamar de volta — o cliente some e ninguém percebe",
   },
   tyres: {
     sistema: "Sistema de ordem de serviço e estoque",
     modulos: ["ordem-servico", "estoque", "clientes", "financeiro"],
     dor: "conferir estoque de pneu por telefone e anotar serviço em papel",
+  },
+
+  /**
+   * Assistência técnica: mesmo coração da oficina — ordem de serviço.
+   *
+   * A diferença é o que entra na OS (aparelho em vez de carro) e o fato de o
+   * cliente ligar o tempo todo perguntando "já ficou pronto?". Essa ligação
+   * repetida é a dor que mais aparece no ramo, e é ela que a mensagem cita.
+   */
+  electronics_repair: {
+    sistema: "Sistema de ordem de serviço para assistência técnica",
+    modulos: ["ordem-servico", "clientes", "historico", "orcamento", "estoque", "financeiro"],
+    dor: "anotar o aparelho num caderno e atender o cliente ligando toda hora para saber se já ficou pronto",
+  },
+  phone_repair: {
+    sistema: "Sistema de ordem de serviço para assistência de celular",
+    modulos: ["ordem-servico", "clientes", "historico", "orcamento", "estoque", "financeiro"],
+    dor: "anotar o aparelho num caderno e atender o cliente ligando toda hora para saber se já ficou pronto",
+  },
+  computer_repair: {
+    sistema: "Sistema de ordem de serviço para assistência de informática",
+    modulos: ["ordem-servico", "clientes", "historico", "orcamento", "estoque", "financeiro"],
+    dor: "anotar o equipamento num caderno e não conseguir dizer em que etapa cada serviço está",
   },
 
   // --- saúde: agenda e histórico ---
@@ -81,9 +121,9 @@ const PERFIS: Record<string, Perfil> = {
     dor: "confirmar consulta uma por uma no WhatsApp e procurar ficha antiga na pasta",
   },
   dentist: {
-    sistema: "Sistema de agenda e histórico do paciente",
-    modulos: ["agendamento", "clientes", "historico", "financeiro", "comissao"],
-    dor: "remarcar por WhatsApp e refazer o cálculo do repasse de cada dentista no fim do mês",
+    sistema: "Sistema de agenda e retorno de pacientes",
+    modulos: ["agendamento", "clientes", "retorno", "historico", "financeiro"],
+    dor: "o paciente que fez limpeza há seis meses e devia voltar — ninguém avisa, e ele só reaparece com dor",
   },
   doctors: {
     sistema: "Sistema de agenda para consultório",
@@ -101,9 +141,9 @@ const PERFIS: Record<string, Perfil> = {
     dor: "controlar quantas sessões cada paciente já fez e quantas faltam do pacote",
   },
   pet: {
-    sistema: "Sistema de banho e tosa",
-    modulos: ["agendamento", "clientes", "historico", "financeiro", "estoque"],
-    dor: "encaixar banho e tosa na agenda por WhatsApp e não perder o histórico do animal",
+    sistema: "Sistema de agenda e ficha do pet",
+    modulos: ["agendamento", "clientes", "pets", "historico", "retorno", "financeiro"],
+    dor: "encaixar banho e tosa por WhatsApp e não achar a ficha do animal — raça, a tosa que o dono pediu, quando foi a última vez",
   },
 
   // --- beleza: agenda + comissão ---
@@ -125,9 +165,9 @@ const PERFIS: Record<string, Perfil> = {
 
   // --- serviços e comércio ---
   estate_agent: {
-    sistema: "CRM de imóveis e visitas",
-    modulos: ["clientes", "agendamento", "historico", "financeiro"],
-    dor: "lembrar qual cliente viu qual imóvel e quem ficou de dar retorno",
+    sistema: "CRM de leads, imóveis e visitas",
+    modulos: ["clientes", "imoveis", "visitas", "retorno", "historico"],
+    dor: "lembrar qual cliente viu qual imóvel e quem ficou de dar retorno — o lead esfria enquanto a anotação some no meio das conversas",
   },
   pharmacy: {
     sistema: "Sistema de estoque e vendas",
@@ -169,8 +209,8 @@ const PERFIS: Record<string, Perfil> = {
 
   // --- hospedagem: a reserva é a operação ---
   guest_house: {
-    sistema: "Sistema de reservas para pousada",
-    modulos: ["reservas", "clientes", "financeiro", "historico"],
+    sistema: "Sistema de reservas, quartos e hóspedes",
+    modulos: ["reservas", "quartos", "hospedes", "historico", "financeiro"],
     dor: "controlar quais quartos estão livres numa planilha e confirmar reserva uma a uma no WhatsApp",
   },
   hotel: {
@@ -313,6 +353,13 @@ const ROTULO_MODULO: Record<Modulo, string> = {
   cardapio: "Cardápio digital",
   reservas: "Reservas",
   fidelidade: "Fidelização",
+  pets: "Ficha do pet",
+  veiculos: "Veículos",
+  imoveis: "Imóveis",
+  visitas: "Visitas",
+  quartos: "Quartos",
+  hospedes: "Hóspedes",
+  retorno: "Retorno de clientes",
 };
 
 export function modulosLegiveis(modulos: Modulo[]): string {
