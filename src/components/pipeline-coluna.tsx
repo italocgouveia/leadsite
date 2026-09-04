@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ETAPAS_FUNIL, type Lead, type Etapa } from "@/lib/db/schema";
 import { categoriaSingular } from "@/lib/categoria-nome";
+import { avaliarSistema } from "@/lib/sistemas";
+import { determinarProximaAcao } from "@/lib/proxima-acao";
 import ExcluirLead from "@/components/excluir-lead";
 
 const COR_TEMP: Record<string, string> = {
@@ -27,8 +29,17 @@ export function CartaoFunil({
   aoIniciarArraste,
   aoTerminarArraste,
   aoExcluir,
+  agora,
 }: {
   lead: Lead;
+  /**
+   * Instante de referência, vindo do pai depois da montagem.
+   *
+   * Não pode ser `Date.now()` aqui dentro: chamada impura no render diverge
+   * entre servidor e cliente na hidratação, e o React reclama com razão. Sem
+   * o valor, o card simplesmente não mostra "dias parado".
+   */
+  agora?: number;
   aoAbrir: () => void;
   arrastando: boolean;
   aoIniciarArraste: () => void;
@@ -61,9 +72,61 @@ export function CartaoFunil({
         </span>
       </div>
 
-      <p className="mb-2.5 truncate text-[12px] text-[var(--texto-2)]">
+      <p className="mb-2 truncate text-[12px] text-[var(--texto-2)]">
         {categoriaSingular(lead.categoria)} · {lead.cidade}
       </p>
+
+      {/**
+       * A inteligência comercial no card, calculada na hora.
+       *
+       * `avaliarSistema` e `determinarProximaAcao` são funções puras sobre o
+       * lead que já está em memória — sem query, sem IA, sem custo. É o que
+       * transforma o kanban de "onde o lead está" em "o que fazer com ele".
+       *
+       * O contexto de conversa vai propositalmente magro: aqui não há histórico
+       * carregado, e a próxima ação sai do estágio do funil. A versão completa
+       * (com objeção e diagnóstico) fica na Central de Conversas, que tem os
+       * dados. Melhor um passo certo e genérico do que um específico inventado.
+       */}
+      {(() => {
+        const encaixe = avaliarSistema(lead);
+        const acao = determinarProximaAcao(lead, {
+          respondeu: Boolean(lead.ultimaInteracao),
+          ultimaEnviadaEm: lead.ultimaInteracao,
+          diagnosticoRespondido: lead.memoriaComercial?.respostas?.length ?? 0,
+        });
+        const dor = lead.memoriaComercial?.dorConfirmada;
+        const dias =
+          agora && lead.atualizadoEm
+            ? Math.floor((agora - new Date(lead.atualizadoEm).getTime()) / 86_400_000)
+            : null;
+
+        return (
+          <div className="mb-2.5 space-y-1">
+            {encaixe.serve && (
+              <p className="truncate text-[11.5px] text-[var(--texto-3)]" title={encaixe.sistema}>
+                🛠 {encaixe.sistema}
+              </p>
+            )}
+            {dor && (
+              <p className="truncate text-[11.5px] text-[var(--verde,var(--azul))]" title={dor}>
+                ✅ dor confirmada
+              </p>
+            )}
+            <p className="line-clamp-2 text-[11.5px] leading-snug text-[var(--azul)]">
+              🎯 {acao.titulo}
+            </p>
+            {dias !== null && dias >= 7 && (
+              <p className="text-[11px] text-[var(--texto-3)]">⏳ {dias} dias parado</p>
+            )}
+            {lead.valorPotencial != null && (
+              <p className="text-[11.5px] tabular-nums text-[var(--texto-2)]">
+                R$ {lead.valorPotencial.toLocaleString("pt-BR")}
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <span

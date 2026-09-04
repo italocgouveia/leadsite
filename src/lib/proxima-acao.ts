@@ -53,9 +53,9 @@ export type ContextoConversa = {
   /** O lead já escreveu alguma vez? */
   respondeu: boolean;
   /** Quando o lead falou pela última vez. */
-  ultimaRecebidaEm?: Date | null;
+  ultimaRecebidaEm?: Date | string | null;
   /** Quando VOCÊ falou pela última vez. */
-  ultimaEnviadaEm?: Date | null;
+  ultimaEnviadaEm?: Date | string | null;
   /** Última intenção classificada (lib/classificar). */
   intencao?: Intencao | null;
   /** Objeção detectada na última mensagem do lead (lib/objecoes). */
@@ -68,9 +68,19 @@ export type ContextoConversa = {
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
-function diasDesde(d?: Date | null): number | null {
+/**
+ * Aceita `Date` ou string ISO.
+ *
+ * Não é frouxidão: estas datas atravessam duas fronteiras que não preservam
+ * `Date` — agregação SQL (`max(criado_em)` volta como texto, mesmo com o tipo
+ * anotado no Drizzle) e JSON de API. Assumir `Date` quebrava com
+ * "getTime is not a function" bem no meio do cálculo da próxima ação.
+ */
+function diasDesde(d?: Date | string | null): number | null {
   if (!d) return null;
-  return Math.floor((Date.now() - d.getTime()) / DIA_MS);
+  const ms = d instanceof Date ? d.getTime() : new Date(d).getTime();
+  if (Number.isNaN(ms)) return null;
+  return Math.floor((Date.now() - ms) / DIA_MS);
 }
 
 /**

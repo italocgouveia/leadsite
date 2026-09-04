@@ -37,6 +37,15 @@ export default function Pipeline() {
   const [aberto, setAberto] = useState<Lead | null>(null);
   const [termo, setTermo] = useState("");
 
+  /**
+   * Instante de referencia para "dias parado", definido APOS a montagem.
+   *
+   * Nao pode sair de `Date.now()` no render do card: chamada impura diverge
+   * entre servidor e cliente na hidratacao. Ate o efeito rodar, o card apenas
+   * omite o tempo parado.
+   */
+  const [agora, setAgora] = useState<number | undefined>(undefined);
+
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [colunaAlvo, setColunaAlvo] = useState<Etapa | null>(null);
 
@@ -48,6 +57,8 @@ export default function Pipeline() {
       const res = await fetch("/api/leads/list");
       const data = await res.json();
       setLeads(data.leads ?? []);
+      // Aqui, e nao no render: dentro do callback nao ha divergencia de hidratacao.
+      setAgora(Date.now());
     } finally {
       setCarregando(false);
     }
@@ -152,6 +163,7 @@ export default function Pipeline() {
                     <CartaoFunil
                       key={lead.id}
                       lead={lead}
+                      agora={agora}
                       arrastando={arrastando === lead.id}
                       aoIniciarArraste={() => setArrastando(lead.id)}
                       aoTerminarArraste={() => {

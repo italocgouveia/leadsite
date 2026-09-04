@@ -18,6 +18,44 @@ import { ROTULO_INTENCAO, type Intencao } from "@/lib/classificar";
  * banco para uma tela que ninguém está olhando.
  */
 
+/** Espelho de /api/comercial/resumo. */
+type ResumoComercial = {
+  funil: { etapa: string; quantos: number; taxa: number | null }[];
+  financeiro: {
+    mrrAtual: number;
+    mrrPotencial: number;
+    setupFechado: number;
+    setupPotencial: number;
+    semValorDefinido: number;
+  };
+  nichos: {
+    nicho: string;
+    abordados: number;
+    respostas: number;
+    taxaResposta: number;
+    solucao: string | null;
+    confiavel: boolean;
+  }[];
+  melhorNicho: { nicho: string; taxaResposta: number; abordados: number } | null;
+  oportunidades: {
+    id: string;
+    nome: string;
+    nicho: string;
+    etapa: string;
+    score: number;
+    emoji: string;
+    dorConfirmada: string | null;
+    hipotese: string | null;
+    solucao: string | null;
+    proximaAcao: { titulo: string; pergunta: string | null; urgencia: string };
+    objecao: { nome: string; resposta: string } | null;
+    diasParado: number;
+  }[];
+  totalOportunidades: number;
+  parados: { id: string; nome: string; etapa: string; diasParado: number }[];
+  followUps: { id: string; leadId: string; lead: string; motivo: string | null }[];
+};
+
 const PERIODOS: { valor: Periodo; rotulo: string }[] = [
   { valor: "hoje", rotulo: "Hoje" },
   { valor: "7d", rotulo: "7 dias" },
@@ -56,6 +94,26 @@ export default function Painel() {
   const [segmento, setSegmento] = useState("");
   const [carregando, setCarregando] = useState(true);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
+
+  /**
+   * Bloco comercial, de /api/comercial/resumo.
+   *
+   * Separado das métricas porque não responde aos filtros de período: pipeline,
+   * MRR e ranking são estado ATUAL, não recorte de janela. Filtrar "MRR dos
+   * últimos 7 dias" não significaria nada.
+   */
+  const [comercial, setComercial] = useState<ResumoComercial | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch("/api/comercial/resumo").then((x) => x.json());
+        if (!r.erro) setComercial(r);
+      } catch {
+        // Bloco opcional: se falhar, o resto do painel continua de pé.
+      }
+    })();
+  }, []);
 
   const carregar = useCallback(async () => {
     const q = new URLSearchParams({ periodo });
@@ -367,6 +425,237 @@ export default function Painel() {
               </tbody>
             </table>
           </section>
+        </>
+      )}
+
+      {/**
+       * BLOCO COMERCIAL.
+       *
+       * Vem inteiro de /api/comercial/resumo, que por sua vez chama os motores
+       * que já existem (lib/comercial, lib/proxima-acao, lib/pontuacao). Nada é
+       * recalculado aqui — a tela só desenha. Nenhuma chamada de IA.
+       */}
+      {comercial && (
+        <>
+          {/* ---------------------------------------------- financeiro */}
+          <section className="cartao surgir mb-6 p-5">
+            <h2 className="mb-3 text-[16px] font-semibold">💰 Financeiro</h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { r: "MRR atual", v: comercial.financeiro.mrrAtual, cor: "text-[var(--verde,var(--azul))]", nota: "clientes pagando" },
+                { r: "MRR potencial", v: comercial.financeiro.mrrPotencial, cor: "text-[var(--texto-2)]", nota: "propostas e negociações" },
+                { r: "Setup fechado", v: comercial.financeiro.setupFechado, cor: "text-[var(--verde,var(--azul))]", nota: "já ganho" },
+                { r: "Setup potencial", v: comercial.financeiro.setupPotencial, cor: "text-[var(--texto-2)]", nota: "em aberto" },
+              ].map((i) => (
+                <div key={i.r} className="rounded-[10px] bg-[var(--superficie)] px-3 py-3">
+                  <p className={`text-[18px] font-semibold tabular-nums ${i.cor}`}>
+                    R$ {i.v.toLocaleString("pt-BR")}
+                  </p>
+                  <p className="text-[12px] text-[var(--texto-2)]">{i.r}</p>
+                  <p className="text-[11px] text-[var(--texto-3)]">{i.nota}</p>
+                </div>
+              ))}
+            </div>
+            {/**
+             * O aviso existe porque os dois números NÃO se somam, e a soma é a
+             * conta que qualquer um faz de cabeça ao ver dois valores lado a
+             * lado. Um é caixa; o outro é promessa.
+             */}
+            <p className="mt-2.5 text-[12px] text-[var(--texto-3)]">
+              Atual e potencial são contas separadas — não se somam. O MRR só conta cliente em
+              implantação ou ativo; negócio fechado que ainda não começou não entra.
+              {comercial.financeiro.semValorDefinido > 0 &&
+                ` ${comercial.financeiro.semValorDefinido} negócio(s) ainda sem preço definido.`}
+            </p>
+          </section>
+
+          {/* ---------------------------------------------- funil */}
+          <section className="cartao surgir mb-6 p-5">
+            <h2 className="mb-3 text-[16px] font-semibold">📊 Funil de conversão</h2>
+            <div className="space-y-1.5">
+              {comercial.funil.map((f) => (
+                <div key={f.etapa} className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 text-[13px] text-[var(--texto-2)]">{f.etapa}</span>
+                  <div className="h-5 flex-1 overflow-hidden rounded-[6px] bg-[var(--superficie)]">
+                    <div
+                      className="h-full bg-[var(--azul)]"
+                      style={{
+                        width: `${
+                          comercial.funil[0].quantos
+                            ? Math.max(2, (f.quantos / comercial.funil[0].quantos) * 100)
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <span className="w-12 shrink-0 text-right text-[13px] font-medium tabular-nums">
+                    {f.quantos}
+                  </span>
+                  {/* Sem denominador não existe taxa. "—", nunca "0%". */}
+                  <span className="w-14 shrink-0 text-right text-[12.5px] tabular-nums text-[var(--texto-3)]">
+                    {f.taxa === null ? "—" : `${f.taxa}%`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ---------------------------------------------- oportunidades */}
+          <section className="cartao surgir mb-6 p-5">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-[16px] font-semibold">🔥 Melhores oportunidades</h2>
+              <span className="text-[12.5px] text-[var(--texto-3)]">
+                {comercial.totalOportunidades} no total
+              </span>
+            </div>
+            {comercial.oportunidades.length === 0 ? (
+              <p className="text-[13px] text-[var(--texto-3)]">
+                Nenhuma oportunidade aberta agora.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {comercial.oportunidades.map((o, i) => (
+                  <div key={o.id} className="rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="text-[13.5px] font-medium">
+                        <span className="text-[var(--texto-3)]">#{i + 1}</span> {o.nome}
+                        <span className="font-normal text-[var(--texto-3)]"> · {o.nicho}</span>
+                      </p>
+                      <span className="text-[13px] tabular-nums">
+                        {o.emoji} {o.score}/100
+                      </span>
+                    </div>
+                    {/* Fato e hipótese ficam visualmente distintos, sempre. */}
+                    <p className="mt-1 text-[12.5px] leading-relaxed">
+                      {o.dorConfirmada ? (
+                        <>
+                          <span className="text-[var(--verde,var(--azul))]">✅ Dor confirmada:</span>{" "}
+                          {o.dorConfirmada}
+                        </>
+                      ) : o.hipotese ? (
+                        <>
+                          <span className="text-[var(--texto-3)]">💡 Hipótese:</span> {o.hipotese}
+                        </>
+                      ) : null}
+                    </p>
+                    {o.solucao && (
+                      <p className="mt-0.5 text-[12.5px] text-[var(--texto-2)]">🛠 {o.solucao}</p>
+                    )}
+                    <p className="mt-1 text-[12.5px] text-[var(--azul)]">
+                      🎯 {o.proximaAcao.titulo}
+                    </p>
+                    {o.objecao && (
+                      <p className="mt-0.5 text-[12px] text-[var(--ambar,var(--texto-2))]">
+                        🧠 Objeção: {o.objecao.nome}
+                      </p>
+                    )}
+                    <Link
+                      href={`/lead/${o.id}`}
+                      className="mt-1.5 inline-block text-[12.5px] text-[var(--azul)] hover:underline"
+                    >
+                      Abrir →
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ---------------------------------------------- nichos */}
+          <section className="cartao surgir mb-6 p-5">
+            <h2 className="mb-1 text-[16px] font-semibold">🏆 Desempenho por nicho</h2>
+            <p className="mb-3 text-[12.5px] text-[var(--texto-3)]">
+              {comercial.melhorNicho
+                ? `Melhor até agora, com os dados disponíveis: ${comercial.melhorNicho.nicho} (${comercial.melhorNicho.taxaResposta}% em ${comercial.melhorNicho.abordados} abordagens).`
+                : "Dados ainda insuficientes para determinar o melhor nicho."}
+            </p>
+            {comercial.nichos.length === 0 ? (
+              <p className="text-[13px] text-[var(--texto-3)]">
+                Ainda não há abordagens suficientes para comparar nichos.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[13px]">
+                  <thead className="text-left text-[12px] text-[var(--texto-3)]">
+                    <tr>
+                      <th className="px-2 py-1.5">Nicho</th>
+                      <th className="px-2 py-1.5 text-right">Abordados</th>
+                      <th className="px-2 py-1.5 text-right">Respostas</th>
+                      <th className="px-2 py-1.5 text-right">Taxa</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comercial.nichos.map((n) => (
+                      <tr key={n.nicho} className="border-t border-[var(--linha)]">
+                        <td className="px-2 py-2">
+                          {n.nicho}
+                          {n.solucao && (
+                            <span className="block text-[11.5px] text-[var(--texto-3)]">
+                              💡 {n.solucao}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums">{n.abordados}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{n.respostas}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">
+                          {n.taxaResposta}%
+                          {/* Amostra pequena vira ruído: marcar é obrigatório. */}
+                          {!n.confiavel && (
+                            <span
+                              title="Menos de 20 abordagens — amostra pequena demais para concluir"
+                              className="ml-1 text-[var(--ambar,var(--texto-3))]"
+                            >
+                              ⚠️
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* ---------------------------------------------- o que fazer agora */}
+          {(comercial.parados.length > 0 || comercial.followUps.length > 0) && (
+            <section className="cartao surgir mb-6 p-5">
+              <h2 className="mb-3 text-[16px] font-semibold">⏳ Precisa de atenção</h2>
+              {comercial.followUps.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-1.5 text-[13px] font-medium">
+                    📌 Follow-ups vencidos ({comercial.followUps.length})
+                  </p>
+                  {comercial.followUps.map((f) => (
+                    <p key={f.id} className="text-[12.5px] text-[var(--texto-2)]">
+                      <Link href={`/lead/${f.leadId}`} className="text-[var(--azul)] hover:underline">
+                        {f.lead}
+                      </Link>
+                      {f.motivo && ` — ${f.motivo}`}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {comercial.parados.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-[13px] font-medium">
+                    Leads parados ({comercial.parados.length})
+                  </p>
+                  {comercial.parados.map((p) => (
+                    <p key={p.id} className="text-[12.5px] text-[var(--texto-2)]">
+                      <Link href={`/lead/${p.id}`} className="text-[var(--azul)] hover:underline">
+                        {p.nome}
+                      </Link>{" "}
+                      — {p.etapa}, {p.diasParado} dias sem mudança
+                    </p>
+                  ))}
+                  <p className="mt-1.5 text-[11.5px] text-[var(--texto-3)]">
+                    Só sinalização — nada é enviado automaticamente.
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
         </>
       )}
     </main>
