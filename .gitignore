@@ -66,3 +66,6 @@ servico.vbs
 painel.log
 *.log
 geracao.pausado
+
+# estado local da coleta (progresso retomavel, nao e codigo)
+coleta-uberlandia.json

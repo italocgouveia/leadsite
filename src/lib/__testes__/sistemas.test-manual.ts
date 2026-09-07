@@ -60,10 +60,30 @@ ok(
   !/banho e tosa/i.test(espetinho.sistema),
   espetinho.sistema || "(sem encaixe)",
 );
-ok("restaurante fica sem encaixe de sistema", espetinho.serve === false);
+/**
+ * O que este bloco protege é o CASAMENTO ERRADO, não a ausência de encaixe.
+ *
+ * "Espetinho" contém a substring "pet", e a régua de perfis casaria o
+ * restaurante com o perfil de pet shop se olhasse por substring solta.
+ *
+ * A asserção antiga era `serve === false`, o que só funcionava enquanto
+ * `restaurant` não tinha perfil nenhum. Ele tem — cardápio e pedidos — e desde
+ * então esta linha vinha falhando. O certo é exigir o perfil CORRETO, que
+ * continua provando a mesma coisa e não quebra quando um ramo ganha encaixe.
+ */
+ok("restaurante 'Espetinho' recebe o perfil de restaurante", espetinho.serve === true);
+ok(
+  "e o perfil é o de pedidos/cardápio, nao o de pet",
+  /pedidos|card[áa]pio/i.test(espetinho.sistema) && !espetinho.modulos.includes("pets"),
+  espetinho.sistema,
+);
 
 const petshopReal = avaliarSistema(lead({ nome: "PetPlus", categoria: "pet" }));
-ok("petshop de verdade continua casando", /banho e tosa/i.test(petshopReal.sistema));
+ok(
+  "petshop de verdade continua casando",
+  petshopReal.modulos.includes("pets") && /banho e tosa/i.test(petshopReal.dor),
+  petshopReal.sistema,
+);
 
 console.log("\n[nivel]");
 ok("com zap + horario + endereco = alto", avaliarSistema(lead()).nivel === "alto");
@@ -86,7 +106,23 @@ ok(
   "nao afirma que a empresa perde dinheiro",
   !/perde|perdendo|preju[íi]zo/i.test(m),
 );
-ok("restaurante nao gera mensagem", montarPropostaSistema(lead({ categoria: "restaurant", nome: "Espetinho Avenida" })) === null);
+/**
+ * Mesma correção do bloco acima: restaurante passou a ter encaixe, então ele
+ * gera mensagem. O que não pode é a mensagem falar de pet.
+ */
+const mRest = montarPropostaSistema(lead({ categoria: "restaurant", nome: "Espetinho Avenida" })) ?? "";
+ok("restaurante gera mensagem do proprio ramo", mRest.length > 0);
+/**
+ * O padrão testa VOCABULÁRIO de pet shop, não a substring "pet" — que aparece
+ * legitimamente dentro de "Espetinho", que é o nome da empresa. Procurar a
+ * substring aqui repetiria dentro do teste exatamente o bug que ele existe
+ * para pegar.
+ */
+ok(
+  "e a mensagem nao fala de pet shop",
+  !/banho e tosa|ficha do (pet|animal)|\bpets\b|do animal/i.test(mRest),
+  mRest.slice(0, 90),
+);
 
 console.log("\n[frase dos modulos]");
 ok(

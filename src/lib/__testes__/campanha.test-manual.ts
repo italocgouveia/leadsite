@@ -5,7 +5,7 @@ import { db, leads, mensagens, campanhas, eventos } from "@/lib/db";
 import { montarCampanha, iniciar, pausar, parar, progresso } from "@/lib/campanha";
 import { configuracoes } from "@/lib/db";
 import { lerConfig, proximaDaFila } from "@/lib/fila";
-import { pontuar } from "@/lib/pontuacao";
+import { pontuar, qualidadeDoNegocio } from "@/lib/pontuacao";
 
 /**
  * Ciclo completo da campanha, contra o banco real, com leads descartáveis.
@@ -97,15 +97,31 @@ async function main() {
   ok("oficina com zap e volume fica quente", p.total >= 60, String(p.total));
 
   /**
-   * A régua antiga rebaixava a 39 quem não tinha WhatsApp. Isso foi REMOVIDO:
-   * oportunidade e contactabilidade viraram eixos separados, e uma empresa
-   * excelente sem contato encontrado vira caso de enriquecimento, não lixo.
+   * O contrato mudou duas vezes, e vale registrar as duas.
+   *
+   * A régua ORIGINAL rebaixava a 39 quem não tinha WhatsApp — o que apagava do
+   * radar empresa boa cujo contato ainda não foi encontrado. Isso foi separado
+   * em dois eixos.
+   *
+   * A régua ATUAL, de prospecção local, traz o contato de volta para o score —
+   * mas como uma parcela de 20 pontos, não como uma execução. A diferença
+   * importa: sem telefone o lead CAI de faixa, e continua aparecendo; ele só
+   * nunca alcança as primeiras posições, que é o comportamento pedido (não
+   * pode ser elegível para disparo, mas tem de continuar visível para
+   * enriquecimento).
+   *
+   * O que este teste protege é o limite dessa queda: ela é proporcional, não
+   * destrutiva.
    */
   const semZap = { ...amostra, whatsapp: null, telefone: null };
   const pSem = pontuar(semZap);
-  ok("oportunidade NAO cai por falta de WhatsApp",
-     pSem.total === pontuar(amostra).total,
-     `${pSem.total} vs ${pontuar(amostra).total}`);
+  const perda = pontuar(amostra).total - pSem.total;
+  ok("sem WhatsApp o score cai, mas no maximo os 20 pontos de contato",
+     perda > 0 && perda <= 24,
+     `perdeu ${perda} pontos (${pSem.total} vs ${pontuar(amostra).total})`);
+  ok("e o lead continua visivel, nao zerado",
+     pSem.total > 0 && qualidadeDoNegocio(semZap) >= 50,
+     `score ${pSem.total}, qualidade do negocio ${qualidadeDoNegocio(semZap)}`);
   ok("mas a contactabilidade cai", pSem.contato.score < pontuar(amostra).contato.score,
      `${pSem.contato.score} vs ${pontuar(amostra).contato.score}`);
 

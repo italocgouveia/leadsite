@@ -32,6 +32,8 @@ export type Modulo =
   | "orcamento"
   | "pedidos"
   | "cardapio"
+  /** Vitrine de produto com preço: loja de roupas, confeitaria, floricultura. */
+  | "catalogo"
   | "reservas"
   | "fidelidade"
   /**
@@ -223,6 +225,270 @@ const PERFIS: Record<string, Perfil> = {
     modulos: ["reservas", "clientes", "financeiro"],
     dor: "confirmar disponibilidade e sinal de reserva um por um pelo WhatsApp",
   },
+
+  /**
+   * ════════ OFÍCIOS E SERVIÇOS DE BAIRRO ════════
+   *
+   * O padrão que se repete em quase todos: o orçamento sai num caderno ou num
+   * áudio de WhatsApp, o serviço é feito, e ninguém sabe depois quanto foi
+   * cobrado da última vez nem quando aquele cliente volta. É ordem de serviço
+   * com nome diferente — e é a venda mais direta da ICG Tech.
+   */
+  carpenter: {
+    sistema: "Sistema de orçamento e projeto para marcenaria",
+    modulos: ["orcamento", "clientes", "ordem-servico", "historico", "financeiro"],
+    dor: "refazer orçamento de móvel planejado do zero e perder o desenho do projeto anterior",
+  },
+  cabinet_maker: {
+    sistema: "Sistema de orçamento e projeto para marcenaria",
+    modulos: ["orcamento", "clientes", "ordem-servico", "historico", "financeiro"],
+    dor: "refazer orçamento de móvel planejado do zero e perder o desenho do projeto anterior",
+  },
+  furniture: {
+    sistema: "Sistema de pedidos e entrega para loja de móveis",
+    modulos: ["pedidos", "clientes", "estoque", "historico", "financeiro"],
+    dor: "controlar prazo de entrega e montagem de cada pedido numa planilha",
+  },
+  glaziery: {
+    sistema: "Sistema de orçamento e medição para vidraçaria",
+    modulos: ["orcamento", "ordem-servico", "clientes", "historico", "financeiro"],
+    dor: "anotar medida de vidro no papel e refazer a visita porque a anotação sumiu",
+  },
+  metal_construction: {
+    sistema: "Sistema de orçamento e obra para serralheria",
+    modulos: ["orcamento", "ordem-servico", "clientes", "historico", "financeiro"],
+    dor: "orçar portão e grade de cabeça e não ter o histórico do que já foi feito no cliente",
+  },
+  blacksmith: {
+    sistema: "Sistema de orçamento e ordem de serviço",
+    modulos: ["orcamento", "ordem-servico", "clientes", "historico"],
+    dor: "controlar cada peça encomendada sem registro de prazo nem de valor",
+  },
+  electrician: {
+    sistema: "Sistema de ordem de serviço para elétrica",
+    modulos: ["ordem-servico", "orcamento", "clientes", "historico", "agendamento"],
+    dor: "agendar visita por WhatsApp e não ter registro do que foi feito na última ida",
+  },
+  plumber: {
+    sistema: "Sistema de ordem de serviço para hidráulica",
+    modulos: ["ordem-servico", "orcamento", "clientes", "historico", "agendamento"],
+    dor: "marcar atendimento no WhatsApp e esquecer qual cliente ficou esperando retorno",
+  },
+  painter: {
+    sistema: "Sistema de orçamento e obra para pintura",
+    modulos: ["orcamento", "ordem-servico", "clientes", "agendamento", "financeiro"],
+    dor: "calcular metragem e material a cada orçamento sem base do que já foi cobrado antes",
+  },
+  plasterer: {
+    sistema: "Sistema de orçamento e obra",
+    modulos: ["orcamento", "ordem-servico", "clientes", "agendamento"],
+    dor: "orçar por metro no papel e não conseguir comparar com a obra do mês passado",
+  },
+  locksmith: {
+    sistema: "Sistema de atendimento e histórico para chaveiro",
+    modulos: ["ordem-servico", "clientes", "historico", "financeiro"],
+    dor: "atender chamado por telefone sem registrar qual serviço foi feito em qual endereço",
+  },
+  hvac: {
+    /**
+     * O ramo com a recorrência mais previsível de todos: limpeza de ar
+     * condicionado tem prazo de calendário. Quem não avisa, perde — e é
+     * dinheiro que já está na base de clientes do próprio negócio.
+     */
+    sistema: "Sistema de ordem de serviço e manutenção preventiva",
+    modulos: ["ordem-servico", "clientes", "agendamento", "retorno", "historico", "financeiro"],
+    dor: "não avisar o cliente quando chega a hora da limpeza e perder a manutenção para outro",
+  },
+  security: {
+    sistema: "Sistema de instalação e manutenção de câmeras",
+    modulos: ["ordem-servico", "clientes", "historico", "agendamento", "financeiro"],
+    dor: "não ter registro de qual equipamento foi instalado em qual cliente quando dá problema",
+  },
+  car_parts: {
+    sistema: "Sistema de estoque e orçamento para autopeças",
+    modulos: ["estoque", "orcamento", "clientes", "pedidos", "financeiro"],
+    dor: "conferir se a peça está no estoque indo até a prateleira enquanto o cliente espera",
+  },
+  motorcycle: {
+    sistema: "Sistema de ordem de serviço para oficina de motos",
+    modulos: ["ordem-servico", "clientes", "veiculos", "historico", "orcamento", "estoque"],
+    dor: "não achar o histórico da moto quando o cliente volta com o mesmo problema",
+  },
+  laundry: {
+    sistema: "Sistema de pedidos e retirada para lavanderia",
+    modulos: ["pedidos", "clientes", "historico", "retorno", "financeiro"],
+    dor: "controlar o que é de cada cliente por ficha de papel e não achar a peça na entrega",
+  },
+  dry_cleaning: {
+    sistema: "Sistema de pedidos e retirada para lavanderia",
+    modulos: ["pedidos", "clientes", "historico", "retorno", "financeiro"],
+    dor: "controlar o que é de cada cliente por ficha de papel e não achar a peça na entrega",
+  },
+  tailor: {
+    sistema: "Sistema de pedidos e prazos para costura",
+    modulos: ["pedidos", "clientes", "agendamento", "historico", "financeiro"],
+    dor: "anotar ajuste e prazo num caderno e não lembrar o que ficou combinado com quem",
+  },
+  dressmaker: {
+    sistema: "Sistema de pedidos e prazos para costura",
+    modulos: ["pedidos", "clientes", "agendamento", "historico", "financeiro"],
+    dor: "anotar ajuste e prazo num caderno e não lembrar o que ficou combinado com quem",
+  },
+  photo: {
+    sistema: "Sistema de agenda e entrega para estúdio",
+    modulos: ["agendamento", "clientes", "historico", "financeiro", "orcamento"],
+    dor: "controlar ensaio, prazo de entrega e pagamento de cada cliente no WhatsApp",
+  },
+  tattoo: {
+    sistema: "Sistema de agenda e orçamento para estúdio de tatuagem",
+    modulos: ["agendamento", "clientes", "orcamento", "historico", "financeiro"],
+    dor: "marcar sessão e sinal por WhatsApp e perder o controle de quem já pagou",
+  },
+  events_venue: {
+    sistema: "Sistema de reservas e orçamento para eventos",
+    modulos: ["reservas", "orcamento", "clientes", "agendamento", "financeiro"],
+    dor: "controlar data reservada e o que foi fechado com cada cliente numa planilha",
+  },
+  accountant: {
+    sistema: "Sistema de clientes e obrigações para contabilidade",
+    modulos: ["clientes", "historico", "financeiro", "retorno", "equipe"],
+    dor: "controlar prazo de entrega de obrigação de cada cliente em planilha separada",
+  },
+  lawyer: {
+    sistema: "Sistema de processos e prazos para advocacia",
+    modulos: ["clientes", "historico", "agendamento", "financeiro"],
+    dor: "acompanhar prazo e andamento de cada caso sem um lugar só que junte tudo",
+  },
+  architect: {
+    sistema: "Sistema de projetos e orçamento para arquitetura",
+    modulos: ["orcamento", "clientes", "historico", "agendamento", "financeiro"],
+    dor: "controlar etapa de cada projeto e o que já foi aprovado pelo cliente por e-mail",
+  },
+  engineer: {
+    sistema: "Sistema de projetos e obra para engenharia",
+    modulos: ["orcamento", "ordem-servico", "clientes", "historico", "financeiro"],
+    dor: "acompanhar medição e etapa de obra em planilhas que ninguém atualiza junto",
+  },
+  interior_decoration: {
+    sistema: "Sistema de projetos e orçamento para design de interiores",
+    modulos: ["orcamento", "clientes", "historico", "agendamento"],
+    dor: "refazer orçamento de ambiente do zero e perder a referência do projeto anterior",
+  },
+  insurance: {
+    sistema: "Sistema de apólices e renovação para corretora",
+    modulos: ["clientes", "retorno", "historico", "financeiro"],
+    dor: "perder renovação de apólice por não ser avisado que o vencimento chegou",
+  },
+  copyshop: {
+    sistema: "Sistema de pedidos e orçamento para gráfica",
+    modulos: ["pedidos", "orcamento", "clientes", "historico", "financeiro"],
+    dor: "refazer orçamento de tiragem toda vez e não achar a arte que o cliente aprovou",
+  },
+  advertising_agency: {
+    sistema: "Sistema de clientes e entregas para agência",
+    modulos: ["clientes", "historico", "financeiro", "equipe"],
+    dor: "controlar entrega e contrato de cada cliente em planilha e conversa solta",
+  },
+  language_school: {
+    sistema: "Sistema de matrícula e turma para escola de idiomas",
+    modulos: ["clientes", "agendamento", "financeiro", "retorno", "equipe"],
+    dor: "controlar matrícula, presença e mensalidade de cada aluno em planilha",
+  },
+  driving_school: {
+    sistema: "Sistema de aulas e processo para autoescola",
+    modulos: ["agendamento", "clientes", "historico", "financeiro"],
+    dor: "encaixar aula prática de cada aluno com cada instrutor num quadro de papel",
+  },
+  music_school: {
+    sistema: "Sistema de aulas e mensalidade para escola de música",
+    modulos: ["agendamento", "clientes", "financeiro", "retorno"],
+    dor: "controlar horário de aula e mensalidade de cada aluno na agenda de papel",
+  },
+  training: {
+    sistema: "Sistema de turmas e matrícula para cursos",
+    modulos: ["clientes", "agendamento", "financeiro", "retorno"],
+    dor: "controlar inscrição e pagamento de cada turma em planilha",
+  },
+  kindergarten: {
+    sistema: "Sistema de matrícula e comunicação para escola infantil",
+    modulos: ["clientes", "financeiro", "historico", "equipe"],
+    dor: "avisar cada família individualmente no WhatsApp e cobrar mensalidade uma a uma",
+  },
+  dietitian: {
+    sistema: "Sistema de consultas e retorno para nutrição",
+    modulos: ["agendamento", "clientes", "historico", "retorno", "financeiro"],
+    dor: "controlar retorno de cada paciente e a evolução dele em ficha de papel",
+  },
+  florist: {
+    sistema: "Sistema de pedidos e entrega para floricultura",
+    modulos: ["pedidos", "clientes", "agendamento", "financeiro", "retorno"],
+    dor: "anotar pedido com data de entrega no caderno e correr risco de furar a data",
+  },
+  bicycle: {
+    sistema: "Sistema de ordem de serviço e estoque para bicicletaria",
+    modulos: ["ordem-servico", "clientes", "estoque", "historico", "orcamento"],
+    dor: "não achar o histórico de manutenção da bike quando o cliente volta",
+  },
+  jewelry: {
+    sistema: "Sistema de estoque e encomendas para joalheria",
+    modulos: ["estoque", "pedidos", "clientes", "historico", "financeiro"],
+    dor: "controlar peça em consignação e encomenda sem registro central",
+  },
+  nutrition_supplements: {
+    sistema: "Sistema de estoque e recompra para loja de suplementos",
+    modulos: ["estoque", "clientes", "retorno", "pedidos", "financeiro"],
+    dor: "não avisar o cliente quando o produto dele está acabando — a recompra some",
+  },
+  clothes: {
+    sistema: "Sistema de estoque e catálogo para loja de roupas",
+    modulos: ["estoque", "catalogo", "clientes", "pedidos", "financeiro"],
+    dor: "mandar foto de peça e conferir tamanho na arara toda vez que alguém pergunta",
+  },
+  doityourself: {
+    sistema: "Sistema de orçamento e estoque para material de construção",
+    modulos: ["orcamento", "estoque", "clientes", "pedidos", "financeiro"],
+    dor: "montar orçamento de lista de material na mão e conferir preço item por item",
+  },
+  dance: {
+    sistema: "Sistema de turmas e mensalidade para escola de dança",
+    modulos: ["agendamento", "clientes", "financeiro", "retorno"],
+    dor: "controlar turma, presença e mensalidade de cada aluno em caderno",
+  },
+  sports_centre: {
+    sistema: "Sistema de turmas e mensalidade",
+    modulos: ["agendamento", "clientes", "financeiro", "retorno", "equipe"],
+    dor: "controlar graduação, presença e mensalidade de cada aluno na mão",
+  },
+  cafe: {
+    sistema: "Sistema de cardápio e pedidos",
+    modulos: ["cardapio", "pedidos", "clientes", "financeiro"],
+    dor: "mandar cardápio e horário por WhatsApp várias vezes por dia",
+  },
+  pastry: {
+    sistema: "Sistema de encomendas para confeitaria",
+    modulos: ["pedidos", "clientes", "agendamento", "financeiro", "catalogo"],
+    dor: "anotar encomenda com data de entrega no caderno e arriscar furar a data",
+  },
+  confectionery: {
+    sistema: "Sistema de encomendas para doceria",
+    modulos: ["pedidos", "clientes", "agendamento", "financeiro"],
+    dor: "controlar encomenda e sinal de cada cliente sem registro central",
+  },
+  ice_cream: {
+    sistema: "Sistema de cardápio e pedidos",
+    modulos: ["cardapio", "pedidos", "clientes", "financeiro"],
+    dor: "repetir sabores e valores no WhatsApp o dia inteiro",
+  },
+  bar: {
+    sistema: "Sistema de comanda e cardápio",
+    modulos: ["cardapio", "pedidos", "financeiro", "equipe"],
+    dor: "controlar comanda em papel e fechar conta conferindo item por item",
+  },
+  travel_agency: {
+    sistema: "Sistema de clientes e reservas para agência de viagens",
+    modulos: ["clientes", "reservas", "historico", "retorno", "financeiro"],
+    dor: "controlar cotação e prazo de cada cliente em conversa solta de WhatsApp",
+  },
 };
 
 /** Sinônimos em português caem no mesmo perfil da tag do OSM. */
@@ -351,6 +617,7 @@ export const ROTULO_MODULO: Record<Modulo, string> = {
   orcamento: "Orçamento",
   pedidos: "Pedidos",
   cardapio: "Cardápio digital",
+  catalogo: "Catálogo de produtos",
   reservas: "Reservas",
   fidelidade: "Fidelização",
   pets: "Ficha do pet",

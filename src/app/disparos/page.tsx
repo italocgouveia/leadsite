@@ -103,7 +103,18 @@ type Oportunidades = {
   excluidos: number;
   recusas: { motivo: string; quantidade: number }[];
   segmentos: { nome: string; total: number; comWhatsapp: number; elegiveis: number; solucao: string | null }[];
-  totais: { leads: number; comWhatsapp: number; elegiveis: number };
+  totais: {
+    leads: number;
+    comWhatsapp: number;
+    elegiveis: number;
+    pequenos: number;
+    comPotencialSistema: number;
+    semSiteConfirmado: number;
+    siteNaoVerificado: number;
+    prioridadeA: number;
+    prioridadeB: number;
+    prioridadeC: number;
+  };
   leads: {
     id: string;
     nome: string;
@@ -121,6 +132,16 @@ type Oportunidades = {
     sistema: string | null;
     modulos: string[];
     dor: string | null;
+    nivel: "A" | "B" | "C";
+    nivelEmoji: string;
+    nivelPorque: string;
+    porte: string;
+    porteRotulo: string;
+    sinaisPequeno: string[];
+    rede: boolean;
+    motivosRede: string[];
+    semSiteConfirmado: boolean;
+    siteNaoVerificado: boolean;
   }[];
 };
 
@@ -132,6 +153,10 @@ type Filtros = {
   notaMinima: string;
   avaliacoesMinimas: string;
   prioridade: "alta" | "media" | "todas";
+  somentePequenos: boolean;
+  comPotencialSistema: boolean;
+  semSiteConfirmado: boolean;
+  nivel: "A" | "B" | "C" | "todos";
 };
 
 const FILTROS_PADRAO: Filtros = {
@@ -143,6 +168,25 @@ const FILTROS_PADRAO: Filtros = {
   notaMinima: "",
   avaliacoesMinimas: "",
   prioridade: "todas",
+  somentePequenos: false,
+  comPotencialSistema: false,
+  semSiteConfirmado: false,
+  nivel: "todos",
+};
+
+/**
+ * 🎯 MELHORES OPORTUNIDADES: o público mais valioso, num clique.
+ *
+ * É a combinação pequeno + WhatsApp + potencial de sistema. "Sem site" fica de
+ * FORA de propósito: no OpenStreetMap a ausência de site quase nunca é
+ * confirmada, e exigi-la aqui esvaziaria a lista justamente do que ela deveria
+ * mostrar. Quem quiser esse corte tem o botão 🌐 ao lado.
+ */
+const MELHORES: Filtros = {
+  ...FILTROS_PADRAO,
+  somenteWhatsapp: true,
+  somentePequenos: true,
+  comPotencialSistema: true,
 };
 
 /** Espelho de /api/campanhas/revisao?id= */
@@ -342,6 +386,10 @@ export default function Disparos() {
       if (filtros.notaMinima) q.set("notaMinima", filtros.notaMinima);
       if (filtros.avaliacoesMinimas) q.set("avaliacoesMinimas", filtros.avaliacoesMinimas);
       if (filtros.prioridade !== "todas") q.set("prioridade", filtros.prioridade);
+      if (filtros.somentePequenos) q.set("somentePequenos", "1");
+      if (filtros.comPotencialSistema) q.set("comPotencialSistema", "1");
+      if (filtros.semSiteConfirmado) q.set("semSiteConfirmado", "1");
+      if (filtros.nivel !== "todos") q.set("nivel", filtros.nivel);
       q.set("quantidade", "200");
       const r = await fetch(`/api/disparo/oportunidades?${q}`).then((x) => x.json());
       setOportunidades(r);
@@ -953,6 +1001,85 @@ export default function Disparos() {
         </section>
       )}
 
+      {/**
+       * O perfil da base, em uma linha clicável.
+       *
+       * Cada número é também o filtro dele: ver "742 pequenos negócios" e ter
+       * de ir procurar onde ligar esse filtro é o tipo de atrito que faz a
+       * pessoa desistir e disparar para a lista inteira.
+       *
+       * "Sem site" conta só o que a auditoria CONFIRMOU. O contador de "site
+       * não conferido" aparece ao lado, apagado, porque a diferença entre os
+       * dois é a diferença entre um fato e a falta dele — e é justamente essa
+       * distinção que impede a tela de prometer uma lacuna que ninguém checou.
+       */}
+      {oportunidades && (
+        <section className="surgir mb-6 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setFiltros(MELHORES)}
+            className="rounded-full bg-[var(--azul)] px-3.5 py-1.5 text-[12px] font-medium text-white transition hover:opacity-90"
+          >
+            🎯 Melhores oportunidades
+          </button>
+
+          {(
+            [
+              { r: "🏪 Pequenos negócios", v: oportunidades.totais.pequenos, k: "somentePequenos" },
+              { r: "📱 Com WhatsApp", v: oportunidades.totais.comWhatsapp, k: "somenteWhatsapp" },
+              { r: "🛠 Potencial de sistema", v: oportunidades.totais.comPotencialSistema, k: "comPotencialSistema" },
+              { r: "🌐 Sem site", v: oportunidades.totais.semSiteConfirmado, k: "semSiteConfirmado" },
+            ] as const
+          ).map((i) => {
+            const ligado = filtros[i.k];
+            return (
+              <button
+                key={i.k}
+                onClick={() => setFiltros((f) => ({ ...f, [i.k]: !f[i.k] }))}
+                className={`rounded-full px-3.5 py-1.5 text-[12px] transition ${
+                  ligado
+                    ? "bg-[var(--azul-fraco)] font-medium text-[var(--azul)]"
+                    : "bg-[var(--superficie)] text-[var(--texto-2)] hover:bg-[var(--superficie-2)]"
+                }`}
+              >
+                {i.r} <span className="tabular-nums font-semibold">{i.v}</span>
+              </button>
+            );
+          })}
+
+          {(["A", "B", "C"] as const).map((n) => {
+            const total =
+              n === "A"
+                ? oportunidades.totais.prioridadeA
+                : n === "B"
+                  ? oportunidades.totais.prioridadeB
+                  : oportunidades.totais.prioridadeC;
+            const emoji = n === "A" ? "🔥" : n === "B" ? "🟡" : "🔵";
+            return (
+              <button
+                key={n}
+                onClick={() =>
+                  setFiltros((f) => ({ ...f, nivel: f.nivel === n ? "todos" : n }))
+                }
+                className={`rounded-full px-3 py-1.5 text-[12px] transition ${
+                  filtros.nivel === n
+                    ? "bg-[var(--azul-fraco)] font-medium text-[var(--azul)]"
+                    : "bg-[var(--superficie)] text-[var(--texto-2)] hover:bg-[var(--superficie-2)]"
+                }`}
+              >
+                {emoji} {n} <span className="tabular-nums font-semibold">{total}</span>
+              </button>
+            );
+          })}
+
+          {oportunidades.totais.siteNaoVerificado > 0 && (
+            <span className="text-[11px] text-[var(--texto-3)]">
+              {oportunidades.totais.siteNaoVerificado} com site não conferido — o mapa não
+              informa, então não contam como “sem site”
+            </span>
+          )}
+        </section>
+      )}
+
       {!painel.provedorConfigurado && (
         <p className="surgir mb-6 rounded-[10px] bg-[var(--ambar-fraco)] px-4 py-3 text-[13px] leading-relaxed text-[var(--ambar)]">
           Nenhum provedor de WhatsApp configurado. Aponte a URL da sua bridge em{" "}
@@ -1179,6 +1306,61 @@ export default function Disparos() {
                       🚫 {r.quantidade} {r.motivo.toLowerCase().replace(/\.$/, "")}
                     </li>
                   ))}
+                </ul>
+              )}
+
+              {/**
+               * A lista em si: quem são os melhores, e por quê.
+               *
+               * Cada cartão mostra a EVIDÊNCIA, não só o número. Um score de 94
+               * sem explicação é pedir confiança cega; "sem site + celular +
+               * ordem de serviço" é uma frase que dá para conferir antes de
+               * mandar mensagem para o WhatsApp de um estranho.
+               *
+               * O porte aparece como "não informado" quando é o caso, e isso é
+               * deliberado: nenhuma fonte gratuita publica porte, e escrever
+               * "microempresa" por parecer pequena seria inventar dado oficial.
+               */}
+              {oportunidades && oportunidades.leads.length > 0 && (
+                <ul className="mt-4 space-y-2 border-t border-[var(--linha)] pt-4">
+                  {oportunidades.leads.slice(0, 30).map((l) => (
+                    <li
+                      key={l.id}
+                      className="rounded-[10px] bg-[var(--superficie)] px-3.5 py-2.5"
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-[14px] font-medium">
+                          {l.nivelEmoji} {l.nome}
+                        </p>
+                        <span className="shrink-0 text-[12.5px] tabular-nums text-[var(--texto-3)]">
+                          {l.emoji} {l.score}/100
+                        </span>
+                      </div>
+
+                      <div className="mt-1 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[12px] text-[var(--texto-3)]">
+                        <span>{l.segmento}</span>
+                        <span>· {l.porteRotulo}</span>
+                        {l.temWhatsapp && <span>· 📱 WhatsApp</span>}
+                        {l.temInstagram && <span>· Instagram</span>}
+                        {l.semSiteConfirmado && <span>· 🌐 sem site</span>}
+                        {l.siteNaoVerificado && <span>· site não conferido</span>}
+                        {l.temSite && !l.semSiteConfirmado && <span>· tem site</span>}
+                        {l.avaliacoes ? <span>· {l.avaliacoes} avaliações</span> : null}
+                      </div>
+
+                      {l.sistema && (
+                        <p className="mt-1 text-[12.5px] text-[var(--texto-2)]">
+                          🛠 {l.sistema}
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-[12px] text-[var(--texto-3)]">{l.nivelPorque}</p>
+                    </li>
+                  ))}
+                  {oportunidades.leads.length > 30 && (
+                    <li className="text-[12px] text-[var(--texto-3)]">
+                      e mais {oportunidades.leads.length - 30} — o disparo usa a lista inteira.
+                    </li>
+                  )}
                 </ul>
               )}
 

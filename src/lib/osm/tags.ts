@@ -175,6 +175,121 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
     termos: ["camping", "glamping", "acampamento"],
     filtros: [{ chave: "tourism", valor: "camp_site" }],
   },
+
+  /**
+   * ════════ OFÍCIOS E SERVIÇOS DE BAIRRO ════════
+   *
+   * Bloco acrescentado para a prospecção de Uberlândia, onde o produto é
+   * SISTEMA (ordem de serviço, agenda, orçamento), não site. São ramos que
+   * vivem de serviço agendado e recorrente e que o mapa anterior não
+   * alcançava: quase todos moram sob `craft=*`, uma chave que nenhuma
+   * entrada acima usava — por isso marcenaria, vidraçaria e serralheria
+   * simplesmente não existiam para o coletor.
+   */
+  {
+    termos: ["marcenaria", "marceneiro", "móveis planejados", "moveis planejados", "planejados"],
+    filtros: [
+      { chave: "craft", valor: "carpenter" },
+      { chave: "craft", valor: "cabinet_maker" },
+      { chave: "shop", valor: "furniture" },
+    ],
+  },
+  {
+    termos: ["vidraçaria", "vidracaria", "vidraceiro", "vidro"],
+    filtros: [
+      { chave: "craft", valor: "glaziery" },
+      { chave: "shop", valor: "glaziery" },
+    ],
+  },
+  {
+    termos: ["serralheria", "serralheiro", "solda", "estruturas metálicas"],
+    filtros: [
+      { chave: "craft", valor: "metal_construction" },
+      { chave: "craft", valor: "blacksmith" },
+    ],
+  },
+  {
+    termos: ["elétrica", "eletrica", "eletricista", "instalação elétrica"],
+    filtros: [
+      { chave: "craft", valor: "electrician" },
+      { chave: "shop", valor: "electrical" },
+    ],
+  },
+  {
+    termos: ["ar condicionado", "ar-condicionado", "climatização", "refrigeração", "refrigeracao"],
+    filtros: [
+      { chave: "craft", valor: "hvac" },
+      { chave: "shop", valor: "hvac" },
+    ],
+  },
+  {
+    termos: ["câmeras", "cameras", "segurança eletrônica", "alarme", "monitoramento"],
+    filtros: [
+      { chave: "shop", valor: "security" },
+      { chave: "office", valor: "security" },
+    ],
+  },
+  {
+    termos: ["autopeças", "autopecas", "peças automotivas", "loja de peças"],
+    filtros: [{ chave: "shop", valor: "car_parts" }],
+  },
+  {
+    termos: ["lavanderia", "lavagem de roupas", "tinturaria"],
+    filtros: [
+      { chave: "shop", valor: "laundry" },
+      { chave: "shop", valor: "dry_cleaning" },
+    ],
+  },
+  {
+    termos: ["costura", "costureira", "alfaiate", "ajustes de roupa"],
+    filtros: [
+      { chave: "craft", valor: "dressmaker" },
+      { chave: "craft", valor: "tailor" },
+      { chave: "shop", valor: "tailor" },
+    ],
+  },
+  {
+    termos: ["decoração", "decoracao", "design de interiores", "designer de interiores"],
+    filtros: [
+      { chave: "shop", valor: "interior_decoration" },
+      { chave: "office", valor: "interior_design" },
+    ],
+  },
+  {
+    termos: ["engenheiro", "engenharia", "empresa de engenharia"],
+    filtros: [{ chave: "office", valor: "engineer" }],
+  },
+  {
+    termos: ["chaveiro", "chaves"],
+    filtros: [{ chave: "craft", valor: "locksmith" }],
+  },
+  {
+    termos: ["pintura", "pintor", "pintura predial"],
+    filtros: [{ chave: "craft", valor: "painter" }],
+  },
+  {
+    termos: ["gesso", "drywall", "gesseiro"],
+    filtros: [{ chave: "craft", valor: "plasterer" }],
+  },
+  {
+    termos: ["encanador", "hidráulica", "hidraulica"],
+    filtros: [{ chave: "craft", valor: "plumber" }],
+  },
+  {
+    termos: ["curso profissionalizante", "treinamento", "capacitação"],
+    filtros: [{ chave: "amenity", valor: "training" }],
+  },
+  {
+    termos: ["nutricionista", "nutrição", "nutricao"],
+    filtros: [{ chave: "healthcare", valor: "dietitian" }],
+  },
+  {
+    termos: ["assistência técnica de computadores", "computadores", "manutenção de computadores"],
+    filtros: [
+      { chave: "shop", valor: "computer" },
+      { chave: "craft", valor: "electronics_repair" },
+    ],
+  },
 ];
 
 function normalizar(texto: string): string {

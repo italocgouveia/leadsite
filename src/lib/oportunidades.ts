@@ -1,6 +1,8 @@
 import { db, leads, mensagens, type Lead } from "@/lib/db";
 import { avaliarContato, lerConfig } from "@/lib/fila";
-import { pontuar } from "@/lib/pontuacao";
+import { pontuar, prioridadeComercial, type NivelPrioridade } from "@/lib/pontuacao";
+import { classificarPorte, pareceNegocioLocal, ROTULO_PORTE, type Porte } from "@/lib/porte";
+import { SEM_SITE } from "@/lib/places/audit";
 import { avaliarSistema } from "@/lib/sistemas";
 import { categoriaSingular } from "@/lib/categoria-nome";
 import type { Etapa } from "@/lib/db/schema";
@@ -39,6 +41,28 @@ export type FiltroOportunidade = {
   avaliacoesMinimas?: number;
   /** Corte por temperatura da oportunidade. */
   prioridade?: "alta" | "media" | "todas";
+
+  // ───────── filtros de prospecção local ─────────
+  /**
+   * 🏪 Só negócios que se comportam como pequenos.
+   *
+   * Note que NÃO é filtro por porte declarado: porte é `desconhecido` para
+   * quase toda a base, porque nenhuma fonte gratuita publica isso. O que este
+   * filtro usa são os indícios de `lib/porte.ts`, e rede nunca passa.
+   */
+  somentePequenos?: boolean;
+  /** 🛠 Só quem tem operação que um sistema organiza. */
+  comPotencialSistema?: boolean;
+  /**
+   * 🌐 Só quem comprovadamente NÃO tem site próprio.
+   *
+   * Diferente de `site: "sem"`, que só olha a coluna vazia. Aqui vale a
+   * auditoria: Instagram, Linktree, iFood e wa.me contam como "sem site", e
+   * `nao-verificado` NÃO entra — ausência de tag no mapa não é prova.
+   */
+  semSiteConfirmado?: boolean;
+  /** Gaveta comercial: 🔥 A, 🟡 B, 🔵 C. */
+  nivel?: "A" | "B" | "C";
 };
 
 export type LeadOportunidade = {
@@ -62,6 +86,24 @@ export type LeadOportunidade = {
   sistema: string | null;
   modulos: string[];
   dor: string | null;
+
+  // ───────── prospecção local ─────────
+  /** Gaveta comercial: A, B ou C. */
+  nivel: NivelPrioridade;
+  nivelEmoji: string;
+  nivelPorque: string;
+  /** Porte OFICIAL. `desconhecido` quase sempre — e isso é a resposta certa. */
+  porte: Porte;
+  porteRotulo: string;
+  /** Indícios de negócio pequeno. Hipótese, não afirmação de porte. */
+  sinaisPequeno: string[];
+  /** É rede/franquia/corporação, e por quê. */
+  rede: boolean;
+  motivosRede: string[];
+  /** A auditoria CONFIRMA que não há site próprio? */
+  semSiteConfirmado: boolean;
+  /** Site não conferido — nem "tem" nem "não tem". */
+  siteNaoVerificado: boolean;
 };
 
 export type SegmentoResumo = {
@@ -83,11 +125,35 @@ export type ResultadoOportunidades = {
   segmentos: SegmentoResumo[];
   /** Os melhores primeiro, já cortados no teto pedido. */
   leads: LeadOportunidade[];
-  /** Números do topo da tela, da base inteira — não do filtro. */
-  totais: { leads: number; comWhatsapp: number; elegiveis: number };
+  /**
+   * Números do topo da tela, da base inteira — não do filtro.
+   *
+   * `semSiteConfirmado` e `siteNaoVerificado` são contados separados de
+   * propósito. Somar os dois num "sem site" único inflaria o número com leads
+   * que ninguém conferiu, e a tela passaria a prometer uma lacuna que talvez
+   * não exista — que é exatamente o erro que este painel existe para não
+   * cometer.
+   */
+  totais: {
+    leads: number;
+    comWhatsapp: number;
+    elegiveis: number;
+    pequenos: number;
+    comPotencialSistema: number;
+    semSiteConfirmado: number;
+    siteNaoVerificado: number;
+    prioridadeA: number;
+    prioridadeB: number;
+    prioridadeC: number;
+  };
 };
 
 const LIMITE_LEADS = 200;
+
+/** A auditoria CONFIRMOU ausência de site próprio? `nao-verificado` não conta. */
+function semSiteConfirmado(lead: Lead): boolean {
+  return SEM_SITE.includes(lead.statusSite);
+}
 
 function passaNosFiltros(lead: Lead, f: FiltroOportunidade): boolean {
   if (f.segmento && categoriaSingular(lead.categoria) !== f.segmento) return false;
@@ -97,6 +163,11 @@ function passaNosFiltros(lead: Lead, f: FiltroOportunidade): boolean {
   if (f.site === "sem" && lead.website) return false;
   if (f.notaMinima != null && (lead.nota ?? 0) < f.notaMinima) return false;
   if (f.avaliacoesMinimas != null && (lead.avaliacoes ?? 0) < f.avaliacoesMinimas) return false;
+
+  if (f.somentePequenos && !pareceNegocioLocal(lead)) return false;
+  if (f.comPotencialSistema && !avaliarSistema(lead).serve) return false;
+  if (f.semSiteConfirmado && !semSiteConfirmado(lead)) return false;
+  if (f.nivel && prioridadeComercial(lead).nivel !== f.nivel) return false;
   return true;
 }
 
@@ -151,10 +222,18 @@ export async function oportunidades(
   };
 
   // ---------- números do topo: a base inteira, sem filtro nenhum ----------
+  const niveis = base.map((l) => prioridadeComercial(l).nivel);
   const totais = {
     leads: base.length,
     comWhatsapp: base.filter((l) => l.whatsapp).length,
     elegiveis: base.filter((l) => elegivel(l).pode).length,
+    pequenos: base.filter(pareceNegocioLocal).length,
+    comPotencialSistema: base.filter((l) => avaliarSistema(l).serve).length,
+    semSiteConfirmado: base.filter(semSiteConfirmado).length,
+    siteNaoVerificado: base.filter((l) => l.statusSite === "nao-verificado").length,
+    prioridadeA: niveis.filter((n) => n === "A").length,
+    prioridadeB: niveis.filter((n) => n === "B").length,
+    prioridadeC: niveis.filter((n) => n === "C").length,
   };
 
   // ---------- cards de nicho: contagem real por segmento ----------
@@ -195,14 +274,26 @@ export async function oportunidades(
     contagemRecusa.set(check.motivo, (contagemRecusa.get(check.motivo) ?? 0) + 1);
   }
 
+  /**
+   * A ordem da tela: gaveta primeiro, score dentro dela.
+   *
+   * Ordenar só por score deixaria um lead C de score 71 na frente de um A de
+   * 68 — e A/B/C responde a pergunta que score nenhum responde: dá para falar
+   * com esse negócio hoje e existe sistema para vender a ele? Quem abre o
+   * painel quer trabalhar a lista de cima para baixo, e é a gaveta que garante
+   * que os primeiros são realmente trabalháveis.
+   */
+  const ORDEM: Record<NivelPrioridade, number> = { A: 0, B: 1, C: 2 };
   const comScore = aptos
-    .map((lead) => ({ lead, p: pontuar(lead) }))
+    .map((lead) => ({ lead, p: pontuar(lead), nivel: prioridadeComercial(lead) }))
     .filter(({ p }) => {
       if (filtro.prioridade === "alta") return p.total >= 70;
       if (filtro.prioridade === "media") return p.total >= 45;
       return true;
     })
-    .sort((a, b) => b.p.total - a.p.total);
+    .sort(
+      (a, b) => ORDEM[a.nivel.nivel] - ORDEM[b.nivel.nivel] || b.p.total - a.p.total,
+    );
 
   const escolhidos = comScore.slice(0, Math.min(quantidade, LIMITE_LEADS));
 
@@ -215,8 +306,9 @@ export async function oportunidades(
       .sort((a, b) => b.quantidade - a.quantidade),
     segmentos,
     totais,
-    leads: escolhidos.map(({ lead, p }) => {
+    leads: escolhidos.map(({ lead, p, nivel }) => {
       const encaixe = avaliarSistema(lead);
+      const classe = classificarPorte(lead);
       return {
         id: lead.id,
         nome: lead.nome,
@@ -236,6 +328,17 @@ export async function oportunidades(
         sistema: encaixe.serve ? encaixe.sistema : null,
         modulos: encaixe.serve ? encaixe.modulos : [],
         dor: encaixe.serve ? encaixe.dor : null,
+
+        nivel: nivel.nivel,
+        nivelEmoji: nivel.emoji,
+        nivelPorque: nivel.porque,
+        porte: classe.porte,
+        porteRotulo: ROTULO_PORTE[classe.porte],
+        sinaisPequeno: classe.sinais,
+        rede: classe.rede,
+        motivosRede: classe.motivosRede,
+        semSiteConfirmado: semSiteConfirmado(lead),
+        siteNaoVerificado: lead.statusSite === "nao-verificado",
       };
     }),
   };

@@ -24,6 +24,10 @@ import { avaliarSistema, type Modulo } from "@/lib/sistemas";
 type Sondagem = { pergunta: string; investiga: string };
 
 const POR_MODULO: Record<Modulo, Sondagem> = {
+  catalogo: {
+    pergunta: "Como o cliente vê os produtos e os preços hoje — vocês mandam foto por WhatsApp?",
+    investiga: "catálogo de produtos",
+  },
   "ordem-servico": {
     pergunta: "Como vocês controlam as ordens de serviço hoje — caderno, planilha ou sistema?",
     investiga: "controle de ordens",

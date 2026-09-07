@@ -9,6 +9,7 @@ import {
 import { linkWhatsapp, formatarTelefone } from "@/lib/telefone";
 import { siglaDoEstado } from "@/lib/categoria-nome";
 import { auditarSite, calcularScore } from "@/lib/places/audit";
+import { deduplicar, mesmoEstabelecimento } from "@/lib/dedup";
 
 /**
  * Busca no OSM, audita cada site e grava no banco.
@@ -38,6 +39,7 @@ export async function buscarEGravar(
       buscaPorNome: resultado.buscaPorNome,
       totalEncontrado: resultado.totalEncontrado,
       totalContatavel: resultado.totalContatavel,
+      duplicadosDescartados: 0,
     };
   }
 
@@ -104,11 +106,60 @@ export async function buscarEGravar(
     }),
   );
 
+  /**
+   * Segunda trava de duplicidade, para o que o `placeId` não pega.
+   *
+   * O upsert abaixo resolve o caso fácil: rebuscar o mesmo nicho atualiza o
+   * mesmo `placeId` em vez de criar linha nova. O caso difícil é outro — o
+   * MESMO estabelecimento mapeado duas vezes no OpenStreetMap, uma como ponto
+   * e outra como área. São dois `osmId`, logo dois `placeId`, logo duas linhas
+   * do mesmo negócio; e é assim que "Espetinho" e "Casa do Salgado" entraram
+   * duplicados na primeira varredura de Uberlândia.
+   *
+   * Duas passagens, nesta ordem:
+   *   1. dentro do lote (as duas versões costumam vir na mesma consulta);
+   *   2. contra quem já está no banco, ignorando o próprio `placeId` — senão
+   *      toda rebusca se acharia duplicata de si mesma e nada seria atualizado.
+   */
+  const { unicos: semRepetidoNoLote } = deduplicar(auditados);
+
+  const jaNoBanco = await db
+    .select({
+      placeId: leads.placeId,
+      nome: leads.nome,
+      cnpj: leads.cnpj,
+      telefone: leads.telefone,
+      whatsapp: leads.whatsapp,
+      website: leads.website,
+      endereco: leads.endereco,
+      cidade: leads.cidade,
+    })
+    .from(leads);
+
+  const novos = semRepetidoNoLote.filter(
+    (c) =>
+      !jaNoBanco.some(
+        (e) => e.placeId !== c.placeId && mesmoEstabelecimento(c, e).igual,
+      ),
+  );
+
+  const descartados = auditados.length - novos.length;
+
+  if (!novos.length) {
+    return {
+      salvos: [] as (typeof leads.$inferSelect)[],
+      buscaPorNome: resultado.buscaPorNome,
+      totalEncontrado: resultado.totalEncontrado,
+      totalContatavel: resultado.totalContatavel,
+      duplicadosDescartados: descartados,
+    };
+  }
+
   // Upsert por placeId: rodar a mesma busca de novo atualiza, não duplica.
   // Preserva etapa/notas do funil — você não perde trabalho já feito no CRM.
   const salvos = await db
     .insert(leads)
-    .values(auditados)
+    .values(novos)
     .onConflictDoUpdate({
       target: leads.placeId,
       set: {
@@ -144,5 +195,6 @@ export async function buscarEGravar(
     buscaPorNome: resultado.buscaPorNome,
     totalEncontrado: resultado.totalEncontrado,
     totalContatavel: resultado.totalContatavel,
+    duplicadosDescartados: descartados,
   };
 }

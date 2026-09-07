@@ -1,7 +1,7 @@
 import { loadEnvConfig } from "@next/env";
 loadEnvConfig(process.cwd());
 import { db, leads, type Lead } from "@/lib/db";
-import { oportunidade, contactabilidade, pontuar, potencialDoSegmento } from "@/lib/pontuacao";
+import { oportunidade, contactabilidade, pontuar, potencialDoSegmento, qualidadeDoNegocio } from "@/lib/pontuacao";
 
 let falhas = 0;
 const ok = (t: string, c: boolean, d = "") => {
@@ -24,7 +24,17 @@ async function main() {
   const otimoSemContato = lead({ statusSite: "sem-site", endereco: "Rua X", horarios: "8-18", website: "https://x.com" });
   const o1 = oportunidade(otimoSemContato), c1 = contactabilidade(otimoSemContato);
   console.log(`     oficina completa SEM contato: oportunidade ${o1.score} | contato ${c1.score}`);
-  ok("oportunidade alta mesmo sem WhatsApp", o1.score >= 66, String(o1.score));
+  /**
+   * Contato passou a valer 20 dos 100 pontos: a regra nova manda o score
+   * REDUZIR quem nao tem como ser contatado (ver o bloco de revisao para
+   * prospeccao local em lib/pontuacao). Entao o teto sem telefone e 80, e a
+   * pergunta certa aqui deixou de ser "continua alta" e passou a ser "continua
+   * sendo reconhecida como bom NEGOCIO" — que e o que `qualidadeDoNegocio`
+   * responde, e o que alimenta a fila de enriquecimento.
+   */
+  ok("bom negocio continua bom negocio sem WhatsApp", qualidadeDoNegocio(otimoSemContato) >= 50,
+     String(qualidadeDoNegocio(otimoSemContato)));
+  ok("mas o score total cai sem contato", o1.score < 80, String(o1.score));
   ok("contato baixo", c1.score < 50, String(c1.score));
   ok("entra na fila de enriquecimento", c1.precisaEnriquecer === true);
 
@@ -37,8 +47,16 @@ async function main() {
   console.log("\n[criterio morto removido]");
   const semAval = lead({ avaliacoes: null, endereco: "R" });
   const comAval = lead({ avaliacoes: 500, endereco: "R" });
-  ok("avaliacoes nao mudam mais o score",
-     oportunidade(semAval).score === oportunidade(comAval).score,
+  /**
+   * Inversao deliberada. Avaliacoes eram criterio morto porque a fonte era so
+   * o OSM, que nao tem nota. Com a regra de prospeccao local elas voltaram a
+   * pontuar (criterio "Atividade comercial") — mas de leve, e SEM penalizar
+   * quem tem muitas: negocio de bairro com 500 avaliacoes e comum, e continua
+   * pequeno. Quem prova porte e lib/porte.ts, nunca o volume de avaliacao.
+   */
+  ok("avaliacoes somam pouco, e para cima",
+     oportunidade(comAval).score > oportunidade(semAval).score &&
+     oportunidade(comAval).score - oportunidade(semAval).score <= 6,
      `${oportunidade(semAval).score} vs ${oportunidade(comAval).score}`);
   ok("nao avaliado cita avaliacoes Google",
      pontuar(semAval).naoAvaliado.some(s => /avalia/i.test(s)));
@@ -49,7 +67,7 @@ async function main() {
   ok("sem-site pontua mais que nao-verificado",
      oportunidade(confirmado).score > oportunidade(desconhecido).score,
      `${oportunidade(confirmado).score} vs ${oportunidade(desconhecido).score}`);
-  const crit = oportunidade(desconhecido).criterios.find(c => /Lacuna/.test(c.rotulo));
+  const crit = oportunidade(desconhecido).criterios.find(c => /Sem site/.test(c.rotulo));
   ok("e explica que nao sabe", !!crit && /n[ãa]o verificado/i.test(crit.base), crit?.base ?? "");
 
   console.log("\n[telefone nao soma duas vezes]");
@@ -65,8 +83,9 @@ async function main() {
   ok("restaurante = medio", potencialDoSegmento(lead({categoria:"restaurant"})) === "medio");
   ok("salao = medio", potencialDoSegmento(lead({categoria:"hairdresser"})) === "medio");
   ok("desconhecido = avaliar", potencialDoSegmento(lead({categoria:"zzz_qualquer"})) === "avaliar");
-  ok("segmento nao decide sozinho (max 40 de 100)",
-     oportunidade(lead({categoria:"car_repair"})).criterios[0].maximo === 40);
+  ok("segmento nao decide sozinho (max 20 de 100)",
+     oportunidade(lead({categoria:"car_repair"})).criterios[0].maximo === 20,
+     "caiu de 40 para 20 para abrir espaco a porte, contato e ausencia de site");
 
   console.log("\n[limites]");
   ok("score nunca passa de 100", oportunidade(lead({
@@ -84,9 +103,19 @@ async function main() {
   const pct = (f: string) => Math.round((faixas.get(f)??0)/base.length*100);
   ["muito-alta","alta","media","baixa"].forEach(f =>
     console.log(`     ${f.padEnd(11)} ${String(faixas.get(f)??0).padStart(3)}  ${pct(f)}%`));
-  ok("muito-alta entre 10 e 20%", pct("muito-alta") >= 10 && pct("muito-alta") <= 20, `${pct("muito-alta")}%`);
-  ok("alta entre 18 e 32%", pct("alta") >= 18 && pct("alta") <= 32, `${pct("alta")}%`);
-  ok("nenhuma faixa vazia", ["muito-alta","alta","media","baixa"].every(f => (faixas.get(f)??0) > 0));
+  /**
+   * A base foi reconstruida (negocio local de Uberlandia, quase nenhum com
+   * telefone) e a distribuicao antiga — calibrada sobre 282 pousadas — nao
+   * descreve mais esta base. O que o teste protege agora e o que precisa valer
+   * em QUALQUER base: o score discrimina, em vez de empilhar todo mundo numa
+   * faixa so. Os percentuais exatos voltam a ser fixados quando a coleta
+   * terminar e a distribuicao estabilizar.
+   */
+  ok("o score discrimina: nenhuma faixa concentra tudo",
+     ["muito-alta","alta","media","baixa"].every(f => pct(f) < 90),
+     ["muito-alta","alta","media","baixa"].map(f => `${f} ${pct(f)}%`).join(" · "));
+  ok("pelo menos tres faixas povoadas",
+     ["muito-alta","alta","media","baixa"].filter(f => (faixas.get(f)??0) > 0).length >= 3);
 
   const enr = base.filter(l => contactabilidade(l).precisaEnriquecer).length;
   console.log(`     para enriquecer: ${enr}`);

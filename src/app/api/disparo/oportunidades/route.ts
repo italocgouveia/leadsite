@@ -29,6 +29,7 @@ export async function GET(request: Request) {
 
   const site = q.get("site");
   const prioridade = q.get("prioridade");
+  const nivel = q.get("nivel");
 
   const filtro: FiltroOportunidade = {
     segmento: q.get("segmento") || undefined,
@@ -40,6 +41,13 @@ export async function GET(request: Request) {
     avaliacoesMinimas: num(q.get("avaliacoesMinimas")),
     prioridade:
       prioridade === "alta" || prioridade === "media" ? prioridade : "todas",
+
+    // Filtros de prospecção local. Todos combináveis entre si — a combinação
+    // pequeno + sem site + WhatsApp + potencial é o público mais valioso.
+    somentePequenos: bool(q.get("somentePequenos")),
+    comPotencialSistema: bool(q.get("comPotencialSistema")),
+    semSiteConfirmado: bool(q.get("semSiteConfirmado")),
+    nivel: nivel === "A" || nivel === "B" || nivel === "C" ? nivel : undefined,
   };
 
   const quantidade = Math.min(Math.max(num(q.get("quantidade")) ?? 50, 1), 200);

@@ -66,6 +66,22 @@ export function validarTelefone(bruto?: string | null): TelefoneValidado | null 
  * Link do WhatsApp. Fixo também vira link: muito comércio usa WhatsApp Business
  * em número fixo, então vale tentar — mas só depois de o número ser válido.
  */
+/**
+ * O número do lead, venha de onde vier.
+ *
+ * `whatsapp` é montado a partir de `telefone` na coleta, então os dois quase
+ * sempre concordam — quase. Um lead entrou com link de WhatsApp e sem
+ * telefone, e qualquer código que olhasse só `telefone` o trataria como
+ * inalcançável. Uma função só evita que cada chamador resolva isso do seu
+ * jeito e chegue a uma resposta diferente sobre o mesmo lead.
+ */
+export function telefoneDoLead(
+  lead: { telefone?: string | null; whatsapp?: string | null },
+): string | null {
+  if (lead.telefone?.trim()) return lead.telefone;
+  return lead.whatsapp?.match(/wa\.me\/(\d+)/)?.[1] ?? null;
+}
+
 export function linkWhatsapp(telefone?: string | null): string | null {
   const v = validarTelefone(telefone);
   return v ? `https://wa.me/${v.e164}` : null;

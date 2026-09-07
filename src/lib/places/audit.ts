@@ -240,3 +240,21 @@ export const A_VERIFICAR: StatusSite[] = ["nao-verificado"];
 export function precisaDeSite(status: StatusSite): boolean {
   return SEM_SITE.includes(status);
 }
+
+/**
+ * O endereço aponta para uma plataforma COMPARTILHADA?
+ *
+ * Instagram, Facebook, Linktree, iFood, wa.me: milhares de negócios diferentes
+ * moram no mesmo host. Existe porque quem compara dois cadastros pelo domínio
+ * precisa saber disso — sem esta checagem, "mesmo domínio" declarava a mesma
+ * empresa para 37 leads que só tinham em comum estar no Instagram.
+ *
+ * Usa as MESMAS listas da auditoria de propósito: uma segunda lista de
+ * plataformas divergiria da primeira no primeiro agregador novo.
+ */
+export function ehPlataformaCompartilhada(url?: string | null): boolean {
+  const host = hostname(url ?? "");
+  if (!host) return false;
+  const bate = (lista: string[]) => lista.some((d) => host === d || host.endsWith(`.${d}`));
+  return bate(REDES_SOCIAIS) || bate(AGREGADORES);
+}
