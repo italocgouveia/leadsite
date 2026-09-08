@@ -19,6 +19,14 @@ import {
 import { deduplicar } from "@/lib/dedup";
 import { alcanceDoLead, ehAlcancavel, ROTULO_ALCANCE, PRACA, type Alcance } from "@/lib/territorio";
 import {
+  probabilidadeComercial,
+  ROTULO_CLASSIFICACAO,
+  ORDEM_CLASSIFICACAO,
+  type Classificacao,
+  type Motivo,
+  type DorDoLead,
+} from "@/lib/probabilidade";
+import {
   canalDoLead,
   instagramDoLead,
   motivoDeDescarte,
@@ -108,6 +116,8 @@ export type FiltroOportunidade = {
   naoContatado?: boolean;
   /** 📍 Só quem está na praça ou na região do DDD. */
   somenteNaPraca?: boolean;
+  /** 🔥 Só "quero vender" · 🟡 "vale abordar" · ⚪ "não prioritário". */
+  decisao?: Classificacao;
 
   /**
    * A FILA comercial. É o filtro principal da tela nova.
@@ -189,6 +199,22 @@ export type LeadOportunidade = {
   /** 📍 na praça · 🛣 região do DDD · ✈ fora. Ver lib/territorio. */
   alcance: Alcance;
   alcanceRotulo: string;
+  /**
+   * 🔥/🟡/⚪ — a decisão de agenda. Ver lib/probabilidade.
+   *
+   * Chama-se `decisao` e não `classificacao` porque este tipo já tem um
+   * `classificacao` (o rótulo de temperatura de `pontuar`). São coisas
+   * diferentes e o nome precisa dizer isso.
+   */
+  decisao: Classificacao;
+  decisaoRotulo: string;
+  /** 0–100. Ordena DENTRO da classificação; nunca a define sozinho. */
+  probabilidade: number;
+  /** Por que está aqui — e o que falta saber. */
+  positivos: Motivo[];
+  negativos: Motivo[];
+  /** Dor provável (hipótese) ou confirmada pelo cliente. Nunca as duas. */
+  dor2: DorDoLead;
 
   // ───────── canais ─────────
   /** 📱 whatsapp · 📸 instagram · 🔥 ambos · ❌ sem-canal */
@@ -369,6 +395,9 @@ function passaNosFiltros(lead: Lead, f: FiltroOportunidade, ajuda: ContextoFiltr
   if (f.prontosParaProspeccao && !ajuda.pronto(lead)) return false;
   if (f.naoContatado && ajuda.jaContatado(lead)) return false;
   if (f.somenteNaPraca && !ehAlcancavel(lead)) return false;
+  if (f.decisao && probabilidadeComercial(lead, ajuda.ctx(lead)).classificacao !== f.decisao) {
+    return false;
+  }
   if (f.potencialForte) {
     const e = avaliarSistema(lead);
     if (!e.serve || e.modulos.length < 4) return false;
@@ -633,20 +662,25 @@ export async function oportunidades(
   }
 
   /**
-   * A ordem da tela: gaveta primeiro, score dentro dela.
+   * A ORDEM DE TRABALHO, e ela é uma decisão comercial, não estética.
    *
-   * Ordenar só por score deixaria um lead C de score 71 na frente de um A de
-   * 68 — e A/B/C responde a pergunta que score nenhum responde: dá para falar
-   * com esse negócio hoje e existe sistema para vender a ele? Quem abre o
-   * painel quer trabalhar a lista de cima para baixo, e é a gaveta que garante
-   * que os primeiros são realmente trabalháveis.
+   *   1. classificação   🔥 antes de 🟡 antes de ⚪
+   *   2. praça           dentro do grupo, quem está na cidade vem primeiro
+   *   3. aderência       mais processos que o sistema organiza
+   *   4. probabilidade   o número, só para desempatar o resto
+   *
+   * NÃO se ordena por quantidade de avaliações nem por ter telefone: volume de
+   * dado não é qualidade comercial, e foi ordenando assim que o painel colocou
+   * dentista de São Paulo acima de oficina de Uberlândia.
    */
   const ORDEM: Record<NivelPrioridade, number> = { A: 0, B: 1, C: 2, D: 3 };
+  const PESO_ALCANCE: Record<Alcance, number> = { local: 0, regional: 1, fora: 2 };
   const comScore = aptos
     .map((lead) => ({
       lead,
       p: pontuar(lead),
       nivel: prioridadeComercial(lead, ctxDe(lead)),
+      prob: probabilidadeComercial(lead, ctxDe(lead)),
     }))
     .filter(({ p }) => {
       if (filtro.prioridade === "alta") return p.total >= 70;
@@ -654,7 +688,12 @@ export async function oportunidades(
       return true;
     })
     .sort(
-      (a, b) => ORDEM[a.nivel.nivel] - ORDEM[b.nivel.nivel] || b.p.total - a.p.total,
+      (a, b) =>
+        ORDEM_CLASSIFICACAO[a.prob.classificacao] - ORDEM_CLASSIFICACAO[b.prob.classificacao] ||
+        PESO_ALCANCE[alcanceDoLead(a.lead)] - PESO_ALCANCE[alcanceDoLead(b.lead)] ||
+        avaliarSistema(b.lead).modulos.length - avaliarSistema(a.lead).modulos.length ||
+        b.prob.pontos - a.prob.pontos ||
+        ORDEM[a.nivel.nivel] - ORDEM[b.nivel.nivel],
     );
 
   const escolhidos = comScore.slice(0, Math.min(quantidade, LIMITE_LEADS));
@@ -676,6 +715,7 @@ export async function oportunidades(
       const classe = classificarPorte(lead);
       const enriq = precisaEnriquecer(lead);
       const sc = scores(lead, ctxDe(lead));
+      const prob = probabilidadeComercial(lead, ctxDe(lead));
       return {
         id: lead.id,
         nome: lead.nome,
@@ -725,6 +765,12 @@ export async function oportunidades(
         telefoneOrigem: lead.telefoneOrigem,
         alcance: alcanceDoLead(lead),
         alcanceRotulo: ROTULO_ALCANCE[alcanceDoLead(lead)],
+        decisao: prob.classificacao,
+        decisaoRotulo: ROTULO_CLASSIFICACAO[prob.classificacao],
+        probabilidade: prob.pontos,
+        positivos: prob.positivos,
+        negativos: prob.negativos,
+        dor2: prob.dor,
         canal: canalDoLead(lead),
         canalRotulo: ROTULO_CANAL[canalDoLead(lead)],
         instagramUsername: instagramDoLead(lead)?.username ?? null,

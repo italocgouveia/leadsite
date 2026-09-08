@@ -58,7 +58,9 @@
     "enriquecer": "tsx src/scripts/enriquecer.ts",
     "test:canais": "tsx src/lib/__testes__/canais.test-manual.ts",
     "relatorio:canais": "tsx src/scripts/relatorio-canais.ts",
-    "relatorio:final": "tsx src/scripts/relatorio-final.ts"
+    "relatorio:final": "tsx src/scripts/relatorio-final.ts",
+    "test:probabilidade": "tsx src/lib/__testes__/probabilidade.test-manual.ts",
+    "relatorio:probabilidade": "tsx src/scripts/relatorio-probabilidade.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

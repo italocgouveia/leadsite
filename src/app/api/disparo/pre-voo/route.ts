@@ -4,6 +4,8 @@ import { db, mensagens, campanhas } from "@/lib/db";
 import { lerConfig, podeEnviarAgora, enviadasHoje } from "@/lib/fila";
 import { estadoIntegracao, lerConfigProvedor } from "@/lib/integracao";
 import { consultarBridge, type SaudeBridge } from "@/lib/bridge";
+import { db as banco, configuracoes } from "@/lib/db";
+import { validarConfigDeProducao } from "@/lib/config-producao";
 
 /**
  * Checagem de pré-voo: tudo que precisa estar certo ANTES de o primeiro
@@ -59,7 +61,25 @@ export async function GET() {
    * Duplicar a regra em versão mais frouxa aqui seria pior que não checar:
    * daria um "tudo certo" que a fila desmente depois.
    */
+  /**
+   * PROCEDÊNCIA DA CONFIGURAÇÃO — vem primeiro na lista de propósito.
+   *
+   * O resto do pré-voo testa se a Bridge responde. Esta linha responde antes:
+   * a configuração é a de produção, ou sobrou de um teste? Um provedor de
+   * teste responde bem e não envia nada para lugar nenhum, e o sintoma
+   * apareceria como "a Bridge não entrega", que manda consertar a coisa errada.
+   */
+  const [cfgBruta] = await banco.select().from(configuracoes);
+  const procedencia = validarConfigDeProducao(cfgBruta);
+
   const pendencias: Pendencia[] = [
+    {
+      item: "Configuração de produção",
+      ok: procedencia.valida,
+      detalhe: procedencia.valida
+        ? "provedor com procedência válida"
+        : `🚨 ${procedencia.motivo} — ${procedencia.detalhe}`,
+    },
     {
       item: "Mensagens aprovadas na fila",
       ok: aprovadas > 0,

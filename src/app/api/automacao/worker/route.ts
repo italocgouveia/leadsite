@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { lerConfigProvedor } from "@/lib/integracao";
 import { controlarWorker, consultarBridge } from "@/lib/bridge";
+import { db, configuracoes } from "@/lib/db";
+import { validarConfigDeProducao } from "@/lib/config-producao";
 
 /**
  * Controle do worker da bridge, a partir do painel logado.
@@ -29,6 +31,25 @@ export async function POST(request: Request) {
   const cfgProv = await lerConfigProvedor();
   if (!cfgProv) {
     return NextResponse.json({ erro: "Provedor de WhatsApp não configurado." }, { status: 422 });
+  }
+
+  /**
+   * TRAVA DE PROCEDÊNCIA — antes de ligar o worker, e só ao LIGAR.
+   *
+   * Um teste interrompido já deixou a configuração apontando para
+   * `provedor-de-teste.example.com`. O pré-voo checa conectividade; esta
+   * checagem responde a pergunta anterior: isto aqui é a config certa? Desligar
+   * nunca é bloqueado — parar tem de funcionar sempre.
+   */
+  if (body.acao === "ligar") {
+    const [cfg] = await db.select().from(configuracoes);
+    const v = validarConfigDeProducao(cfg);
+    if (!v.valida) {
+      return NextResponse.json(
+        { erro: `🚨 ${v.motivo}`, detalhe: v.detalhe, bloqueado: true },
+        { status: 422 },
+      );
+    }
   }
 
   /**

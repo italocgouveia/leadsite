@@ -44,6 +44,15 @@ type LeadCaca = {
   prontoParaProspeccao: boolean;
   alcance: "local" | "regional" | "fora";
   alcanceRotulo: string;
+  decisao: "quero-vender" | "vale-abordar" | "nao-prioritario";
+  decisaoRotulo: string;
+  probabilidade: number;
+  positivos: { texto: string; pontos: number }[];
+  negativos: { texto: string; pontos: number }[];
+  dor2:
+    | { tipo: "confirmada"; texto: string }
+    | { tipo: "provavel"; texto: string; sinais: string[] }
+    | { tipo: "nenhuma" };
   temSite: boolean;
   semSiteConfirmado: boolean;
 };
@@ -320,13 +329,18 @@ export default function CacadaPage() {
         {(dados?.leads ?? []).map((l) => (
           <li key={l.id} className="cartao p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-[15px] font-medium">
-                {l.canal === "ambos" ? "🔥 " : l.canal === "whatsapp" ? "📱 " : "📸 "}
-                {l.nome}
-              </p>
+              <div>
+                <p className="text-[11.5px] font-medium tracking-wide text-[var(--texto-3)]">
+                  {l.decisaoRotulo}
+                </p>
+                <p className="text-[15px] font-medium">
+                  {l.canal === "ambos" ? "🔥 " : l.canal === "whatsapp" ? "📱 " : "📸 "}
+                  {l.nome}
+                </p>
+              </div>
               <span className="text-[12px] tabular-nums text-[var(--texto-3)]">
-                comercial {l.scoreComercial} · contato {l.scoreContatabilidade} · final{" "}
-                <strong className="text-[var(--texto-2)]">{l.scoreFinal}</strong>
+                comercial {l.scoreComercial} · contato {l.scoreContatabilidade} · prioridade{" "}
+                <strong className="text-[var(--texto-2)]">{l.probabilidade}/100</strong>
               </span>
             </div>
 
@@ -340,11 +354,43 @@ export default function CacadaPage() {
             </p>
 
             {l.sistema && <p className="mt-1.5 text-[13px] text-[var(--texto-2)]">🛠 {l.sistema}</p>}
-            {l.dor && <p className="mt-0.5 text-[12.5px] text-[var(--texto-3)]">💡 {l.dor}</p>}
-            {l.porQue.length > 0 && (
-              <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--texto-3)]">
-                {l.porQue.map((x) => `${x.pontos > 0 ? "+" : ""}${x.pontos} ${x.criterio}`).join(" · ")}
+
+            {/**
+             * A DOR nunca aparece como fato antes da conversa. "Dor provável"
+             * vem com os sinais que a sustentam; "confirmada" só depois de o
+             * cliente descrever o processo dele.
+             */}
+            {l.dor2.tipo === "confirmada" && (
+              <p className="mt-0.5 text-[12.5px] text-[var(--verde)]">
+                ✅ Dor confirmada: {l.dor2.texto}
               </p>
+            )}
+            {l.dor2.tipo === "provavel" && (
+              <p className="mt-0.5 text-[12.5px] text-[var(--texto-3)]">
+                💡 Dor provável: {l.dor2.texto}
+                <span className="opacity-70"> — {l.dor2.sinais.join(", ")}</span>
+              </p>
+            )}
+
+            {l.positivos.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5">
+                {l.positivos.map((m) => (
+                  <li key={m.texto} className="text-[12px] text-[var(--texto-2)]">
+                    ✓ {m.texto}{" "}
+                    <span className="tabular-nums text-[var(--texto-3)]">+{m.pontos}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {l.negativos.length > 0 && (
+              <ul className="mt-1 space-y-0.5">
+                {l.negativos.map((m) => (
+                  <li key={m.texto} className="text-[12px] text-[var(--texto-3)]">
+                    ⚠️ {m.texto}
+                    {m.pontos !== 0 && <span className="tabular-nums"> {m.pontos}</span>}
+                  </li>
+                ))}
+              </ul>
             )}
 
             {/* Ações de Instagram só onde fazem sentido — e nunca disparam nada. */}

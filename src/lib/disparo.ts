@@ -8,6 +8,8 @@ import { registrar, textoPara } from "@/lib/campanha";
 import { avaliar } from "@/lib/oportunidade";
 import { pontuar } from "@/lib/pontuacao";
 import { canalDoLead, motivoDeDescarte, ROTULO_DESCARTE } from "@/lib/canais";
+import { probabilidadeComercial, ORDEM_CLASSIFICACAO } from "@/lib/probabilidade";
+import { alcanceDoLead } from "@/lib/territorio";
 import { deduplicar } from "@/lib/dedup";
 import { categoriaSingular } from "@/lib/categoria-nome";
 import type { Etapa } from "@/lib/db/schema";
@@ -165,8 +167,24 @@ async function elegiveis(
     aptos.push({ lead, texto });
   }
 
-  // Melhores primeiro: se o teto diário cortar, corta pelo fim da lista.
-  aptos.sort((a, b) => pontuar(b.lead).total - pontuar(a.lead).total);
+  /**
+   * Melhores primeiro: se o teto diário cortar, corta pelo fim da lista.
+   *
+   * Usa a MESMA ordem de `lib/oportunidades` — classificação comercial, depois
+   * praça, depois probabilidade. Duas ordens diferentes para a mesma fila é
+   * como o painel e a campanha divergiram antes: a tela prometia um lote e o
+   * disparo mandava outro.
+   */
+  aptos.sort((a, b) => {
+    const pa = probabilidadeComercial(a.lead);
+    const pb = probabilidadeComercial(b.lead);
+    return (
+      ORDEM_CLASSIFICACAO[pa.classificacao] - ORDEM_CLASSIFICACAO[pb.classificacao] ||
+      (alcanceDoLead(a.lead) === "local" ? 0 : 1) - (alcanceDoLead(b.lead) === "local" ? 0 : 1) ||
+      pb.pontos - pa.pontos ||
+      pontuar(b.lead).total - pontuar(a.lead).total
+    );
+  });
 
   const recusas = [...contagem.entries()]
     .map(([motivo, quantidade]) => ({ motivo, quantidade }))

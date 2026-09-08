@@ -6,6 +6,7 @@ import { montarCampanha, iniciar, pausar, parar, progresso } from "@/lib/campanh
 import { configuracoes } from "@/lib/db";
 import { lerConfig, proximaDaFila } from "@/lib/fila";
 import { pontuar, qualidadeDoNegocio } from "@/lib/pontuacao";
+import { protegerConfig } from "@/lib/config-teste";
 
 /**
  * Ciclo completo da campanha, contra o banco real, com leads descartáveis.
@@ -20,26 +21,19 @@ async function main() {
   };
 
   /**
-   * A validação de integração agora BLOQUEIA iniciar campanha com provedor
-   * inválido — comportamento correto, mas que dependia da config real do
-   * usuário para o teste passar. Aqui a config é salva, trocada por uma
-   * válida durante o teste e restaurada no fim, exatamente como estava.
+   * A validação de integração BLOQUEIA iniciar campanha com provedor inválido,
+   * e este teste precisa exercitar os dois estados — inválido e válido. Por
+   * isso ele troca a configuração compartilhada.
+   *
+   * A proteção NÃO é mais um `restaurar()` no fim do main: essa versão não
+   * rodava quando o processo morria por timeout, e foi assim que a produção
+   * ficou apontando para um provedor de teste. `protegerConfig` registra a
+   * restauração nos sinais e nas exceções, e o `finally` lá embaixo fecha o
+   * caso normal. Ver lib/config-teste.ts.
    */
-  const [cfgOriginal] = await db.select().from(configuracoes);
-  const restaurar = async () => {
-    if (!cfgOriginal) return;
-    await db
-      .update(configuracoes)
-      .set({
-        provedorUrl: cfgOriginal.provedorUrl,
-        provedorTipo: cfgOriginal.provedorTipo,
-        provedorBaseUrl: cfgOriginal.provedorBaseUrl,
-        provedorInstancia: cfgOriginal.provedorInstancia,
-        provedorToken: cfgOriginal.provedorToken,
-        provedorTestadoEm: cfgOriginal.provedorTestadoEm,
-      })
-      .where(eq(configuracoes.id, cfgOriginal.id));
-  };
+  const guarda = await protegerConfig();
+  const cfgOriginal = guarda.original;
+  const restaurar = guarda.restaurar;
 
   /**
    * A validação agora lê os campos separados (tipo/base/instancia/token), não
@@ -76,7 +70,12 @@ async function main() {
   await db.delete(campanhas).where(eq(campanhas.id, provisoria[0].id));
 
   // Com URL válida, o ciclo normal deve funcionar.
-  await configurarProvedor("https://provedor-de-teste.example.com", true);
+  /**
+   * Aponta para 127.0.0.1 de propósito: se a restauração falhar apesar de tudo,
+   * o que sobra na base é um endereço que `validarConfigDeProducao` reconhece
+   * como teste e BLOQUEIA — em vez de um domínio plausível que passa batido.
+   */
+  await configurarProvedor("http://127.0.0.1:8099", true);
 
   const criados: string[] = [];
   for (let i = 0; i < 3; i++) {
@@ -205,4 +204,30 @@ async function main() {
   console.log(falhas === 0 ? "\nTodos os casos passaram." : `\n${falhas} falha(s).`);
   process.exitCode = falhas === 0 ? 0 : 1;
 }
-main();
+
+/**
+ * O `finally` é a terceira rede, não a única.
+ *
+ * Ele cobre o caminho normal e a exceção. Timeout e Ctrl+C não passam por
+ * aqui — quem cobre esses é `protegerConfig`, que registra a restauração nos
+ * sinais do processo. Foi a ausência das duas primeiras redes que deixou a
+ * configuração de produção apontando para um provedor de teste.
+ */
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    const { db: banco, configuracoes: cfgTabela } = await import("@/lib/db");
+    const [atual] = await banco.select().from(cfgTabela);
+    const { validarConfigDeProducao } = await import("@/lib/config-producao");
+    const v = validarConfigDeProducao(atual);
+    if (!v.valida) {
+      console.error(
+        `\n🚨 A configuração ficou inválida ao fim do teste: ${v.motivo}.\n` +
+          "   Rode: npx tsx src/scripts/restaurar-provedor.ts --executar\n",
+      );
+      process.exitCode = 1;
+    }
+  });
