@@ -52,6 +52,7 @@ export async function GET(request: Request) {
     prontosParaProspeccao: bool(q.get("prontosParaProspeccao")),
     potencialForte: bool(q.get("potencialForte")),
     naoContatado: bool(q.get("naoContatado")),
+    somenteNaPraca: bool(q.get("somenteNaPraca")),
   };
 
   const quantidade = Math.min(Math.max(num(q.get("quantidade")) ?? 50, 1), 200);

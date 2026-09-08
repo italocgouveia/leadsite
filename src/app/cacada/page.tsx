@@ -42,6 +42,8 @@ type LeadCaca = {
   scoreFinal: number;
   porQue: { criterio: string; pontos: number }[];
   prontoParaProspeccao: boolean;
+  alcance: "local" | "regional" | "fora";
+  alcanceRotulo: string;
   temSite: boolean;
   semSiteConfirmado: boolean;
 };
@@ -57,6 +59,10 @@ type Resposta = {
     total: number;
     pequenosLocais: number;
     comSistemaAplicavel: number;
+    naPraca: number;
+    naRegiao: number;
+    foraDaPraca: number;
+    praca: string;
     descartes: { motivo: string; rotulo: string; quantidade: number }[];
   };
 };
@@ -85,6 +91,12 @@ export default function CacadaPage() {
   const [soPequenos, setSoPequenos] = useState(true);
   const [soComSistema, setSoComSistema] = useState(true);
   const [soNaoContatados, setSoNaoContatados] = useState(false);
+  /**
+   * LIGADO por padrão: a operação é local. Medido — sem este filtro, 19 dos 20
+   * primeiros da lista eram de outra cidade, porque os leads antigos espalhados
+   * pelo Brasil têm telefone e os novos de Uberlândia quase não têm.
+   */
+  const [soNaPraca, setSoNaPraca] = useState(true);
   const [segmento, setSegmento] = useState("");
 
   const carregar = useCallback(async () => {
@@ -100,13 +112,14 @@ export default function CacadaPage() {
       if (soPequenos) q.set("somentePequenos", "1");
       if (soComSistema) q.set("comPotencialSistema", "1");
       if (soNaoContatados) q.set("naoContatado", "1");
+      if (soNaPraca) q.set("somenteNaPraca", "1");
       if (segmento) q.set("segmento", segmento);
 
       setDados(await fetch(`/api/disparo/oportunidades?${q}`).then((r) => r.json()));
     } finally {
       setCarregando(false);
     }
-  }, [fila, soPequenos, soComSistema, soNaoContatados, segmento]);
+  }, [fila, soPequenos, soComSistema, soNaoContatados, soNaPraca, segmento]);
 
   useEffect(() => {
     void (async () => {
@@ -185,10 +198,14 @@ export default function CacadaPage() {
       {c && (
         <section className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
-            { r: "🔥 Ambos", v: c.ambos, destaque: true },
+            /**
+             * "Na praça" vem primeiro e em destaque: é o número que a operação
+             * local realmente usa. Acionável a 600 km é informação, não alvo.
+             */
+            { r: `📍 Em ${c.praca.split("/")[0]}`, v: c.naPraca, destaque: true },
+            { r: "🔥 Ambos os canais", v: c.ambos },
             { r: "📱 WhatsApp", v: c.whatsapp },
-            { r: "📸 Instagram", v: c.instagram },
-            { r: "✅ Acionáveis", v: c.acionaveis },
+            { r: "✅ Acionáveis (total)", v: c.acionaveis },
           ].map((i) => (
             <div
               key={i.r}
@@ -246,6 +263,10 @@ export default function CacadaPage() {
             onChange={(e) => setSoNaoContatados(e.target.checked)}
           />
           🚫 nunca contatados
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={soNaPraca} onChange={(e) => setSoNaPraca(e.target.checked)} />
+          📍 só {dados?.canais.praca ?? "a praça"}
         </label>
         <input
           value={segmento}
@@ -311,7 +332,7 @@ export default function CacadaPage() {
 
             <p className="mt-0.5 text-[12.5px] text-[var(--texto-3)]">
               {l.segmento}
-              {l.cidade ? ` · ${l.cidade}` : ""} · 🏪 {l.porteEstimadoRotulo} ·{" "}
+              {l.cidade ? ` · ${l.cidade}` : ""} · {l.alcanceRotulo} · 🏪 {l.porteEstimadoRotulo} ·{" "}
               {l.semSiteConfirmado ? "🌐 sem site" : l.temSite ? "🌐 tem site" : "🌐 site não conferido"}
               {l.prontoParaProspeccao && (
                 <span className="text-[var(--azul)]"> · ✅ pronto para disparo</span>

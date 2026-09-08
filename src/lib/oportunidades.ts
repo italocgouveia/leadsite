@@ -17,6 +17,7 @@ import {
   type PorteEstimado,
 } from "@/lib/porte";
 import { deduplicar } from "@/lib/dedup";
+import { alcanceDoLead, ehAlcancavel, ROTULO_ALCANCE, PRACA, type Alcance } from "@/lib/territorio";
 import {
   canalDoLead,
   instagramDoLead,
@@ -105,6 +106,8 @@ export type FiltroOportunidade = {
   potencialForte?: boolean;
   /** 🚫 Nunca recebeu mensagem nossa. */
   naoContatado?: boolean;
+  /** 📍 Só quem está na praça ou na região do DDD. */
+  somenteNaPraca?: boolean;
 
   /**
    * A FILA comercial. É o filtro principal da tela nova.
@@ -183,6 +186,9 @@ export type LeadOportunidade = {
   qualidadePotencial: NivelPrioridade;
   /** De onde veio o telefone, quando veio de enriquecimento. */
   telefoneOrigem: string | null;
+  /** 📍 na praça · 🛣 região do DDD · ✈ fora. Ver lib/territorio. */
+  alcance: Alcance;
+  alcanceRotulo: string;
 
   // ───────── canais ─────────
   /** 📱 whatsapp · 📸 instagram · 🔥 ambos · ❌ sem-canal */
@@ -247,6 +253,11 @@ export type ResultadoOportunidades = {
     possiveisDuplicatas: number;
     comInstagram: number;
     naoContatados: number;
+    /** Acionáveis por distância da operação. Ver lib/territorio. */
+    naPraca: number;
+    naRegiao: number;
+    foraDaPraca: number;
+    praca: string;
     prioridadeA: number;
     prioridadeB: number;
     prioridadeC: number;
@@ -357,6 +368,7 @@ function passaNosFiltros(lead: Lead, f: FiltroOportunidade, ajuda: ContextoFiltr
   }
   if (f.prontosParaProspeccao && !ajuda.pronto(lead)) return false;
   if (f.naoContatado && ajuda.jaContatado(lead)) return false;
+  if (f.somenteNaPraca && !ehAlcancavel(lead)) return false;
   if (f.potencialForte) {
     const e = avaliarSistema(lead);
     if (!e.serve || e.modulos.length < 4) return false;
@@ -472,6 +484,11 @@ export async function oportunidades(
     siteNaoVerificado: base.filter((l) => l.statusSite === "nao-verificado").length,
     possiveisDuplicatas: duplicados.size,
     comInstagram: base.filter((l) => l.instagram).length,
+    /** Acionáveis DENTRO da praça — a métrica que a operação local usa. */
+    naPraca: base.filter((l) => ehAcionavel(l) && alcanceDoLead(l) === "local").length,
+    naRegiao: base.filter((l) => ehAcionavel(l) && alcanceDoLead(l) === "regional").length,
+    foraDaPraca: base.filter((l) => ehAcionavel(l) && alcanceDoLead(l) === "fora").length,
+    praca: `${PRACA.cidade}/${PRACA.uf}`,
     /** Nunca recebeu mensagem nossa — nem rascunho, nem enviada. */
     naoContatados: base.filter((l) => (porLead.get(l.id)?.length ?? 0) === 0).length,
     prioridadeA: niveis.filter((n) => n === "A").length,
@@ -706,6 +723,8 @@ export async function oportunidades(
         enriquecimentoMotivo: enriq.motivo,
         qualidadePotencial: enriq.qualidadePotencial,
         telefoneOrigem: lead.telefoneOrigem,
+        alcance: alcanceDoLead(lead),
+        alcanceRotulo: ROTULO_ALCANCE[alcanceDoLead(lead)],
         canal: canalDoLead(lead),
         canalRotulo: ROTULO_CANAL[canalDoLead(lead)],
         instagramUsername: instagramDoLead(lead)?.username ?? null,

@@ -4,6 +4,7 @@ import { categoriaSingular } from "@/lib/categoria-nome";
 import { classificarPorte, ehCategoriaDeGrandePorte } from "@/lib/porte";
 import { SEM_SITE } from "@/lib/places/audit";
 import { nichoPrioritario } from "@/lib/nichos-locais";
+import { alcanceDoLead, PRACA } from "@/lib/territorio";
 import { validarTelefone, telefoneDoLead } from "@/lib/telefone";
 
 /**
@@ -69,12 +70,25 @@ import { validarTelefone, telefoneDoLead } from "@/lib/telefone";
  *  - ramo de grande porte (banco, hospital, universidade, órgão público) leva
  *    -30 além dos -40 de rede, porque não compra como uma oficina compra.
  *
- * PESOS (positivos somam 120, resultado cortado em 100):
+ * ═══ REVISÃO DE PRAÇA (a régua atual) ═══
+ *
+ * Faltava geografia, e isso custava caro: medido, 19 dos 20 melhores leads do
+ * painel NÃO eram de Uberlândia. A causa não era o score — era a origem dos
+ * dados. Os 222 leads preservados da prospecção antiga estão espalhados pelo
+ * Brasil e TÊM telefone; os 835 novos da cidade quase não têm. Sem praça na
+ * régua, quem tem telefone ganha, mesmo a 600 km.
+ *
+ * Ver `lib/territorio.ts`. Fora da praça NÃO é descarte: o lead continua
+ * visível, só para de disputar o topo com quem está do lado.
+ *
+ * PESOS (positivos somam 135; o score é NORMALIZADO por esse total, não
+ * cortado em 100 — cortar fazia leads diferentes empatarem no teto):
  *
  *   +25 ramo com sistema claramente aplicável
  *   +20 WhatsApp ou celular disponível
  *   +15 negócio local independente
  *   +15 sinais de operação recorrente
+ *   +15 na praça da operação
  *   +10 Instagram ativo
  *   +10 volume de avaliações
  *   +10 nota boa
@@ -82,7 +96,8 @@ import { validarTelefone, telefoneDoLead } from "@/lib/telefone";
  *   +5  não possui site próprio
  *
  *   -40 franquia ou rede          -20 sem telefone
- *   -30 ramo de grande porte      -15 inativa      -15 possível duplicata
+ *   -30 ramo de grande porte      -25 fora da praça
+ *   -15 inativa                   -15 possível duplicata
  *   -10 nenhum sinal de operação comercial
  */
 
@@ -151,21 +166,25 @@ export type Oportunidade = {
  * foi feito: os valores abaixo saíram de rodar a fórmula sobre os 282 leads
  * até a distribuição cair perto de 15% / 25% / 40% / 20%.
  */
-const LIMIAR = { muitoAlta: 80, alta: 66, media: 42 };
+const LIMIAR = { muitoAlta: 60, alta: 45, media: 32 };
 
 /**
- * CALIBRAÇÃO — e por que ela está deliberadamente desatualizada.
+ * CALIBRAÇÃO — medida sobre os 123 leads acionáveis da base real.
  *
- * Os limiares 80/66/42 foram calibrados sobre a base antiga (282 pousadas e
- * chalés), onde davam 14% / 28% / 37% / 21%.
+ * Depois que o score passou a ser normalizado por 135 (em vez de cortado em
+ * 100) e que a praça entrou na conta, a distribuição ficou assim:
  *
- * Sobre a base nova de Uberlândia eles ficam bem mais apertados, e a explicação
- * NÃO é que os leads sejam piores: é que o OpenStreetMap quase não publica
- * telefone na cidade (medido: 171 números em 4.280 estabelecimentos mapeados).
- * Sem telefone o lead perde os 20 pontos de contato E ainda leva -20 de
- * penalidade — uma diferença de 40 pontos, que é o desenho certo para uma
- * régua de prospecção: não adianta ser bom negócio se não há como falar com
- * ele hoje.
+ *   todos os acionáveis (123) → min 23 · p25 34 · mediana 44 · p90 66 · máx 80
+ *   só praça e região   (16) → min 55 · p25 66 · mediana 69 · máx 80
+ *
+ * Os dois grupos praticamente não se sobrepõem, e é isso que dá sentido aos
+ * limiares: 60 separa o topo, 45 fica entre a mediana geral e o piso da praça,
+ * 32 tira o fundo. A gaveta A usa 55 — o piso exato do grupo da praça — o que
+ * faz "excelente oportunidade" significar, na prática, negócio local com
+ * canal e sistema.
+ *
+ * Antes desta calibração A abrangia 80% dos acionáveis: um rótulo que quase
+ * todo mundo tem não ordena nada.
  *
  * Mexer nos limiares agora só maquiaria isso: renomearia de "média" para
  * "alta" um lead com quem não há como falar. O número baixo é informação
@@ -302,6 +321,30 @@ export function oportunidade(lead: Lead, ctx: ContextoLead = {}): Oportunidade {
     lead.instagram ? "perfil no Instagram" : "sem Instagram",
   );
 
+  /**
+   * ---------- 5b. praça da operação (−25 a +15) ----------
+   *
+   * Geografia É qualidade comercial numa venda local. Sem este critério, os
+   * leads da prospecção antiga — espalhados pelo Brasil e com telefone —
+   * ocupavam 19 das 20 primeiras posições, e a lista de "com quem falar hoje"
+   * apontava para outra cidade.
+   *
+   * Fora da praça NÃO é descarte: o lead continua na base e continua visível.
+   * Ele só deixa de disputar o topo com quem está do lado.
+   */
+  const alcance = alcanceDoLead(lead);
+  add(
+    "praca",
+    "Na praça da operação",
+    alcance === "local" ? 15 : alcance === "regional" ? 6 : 0,
+    15,
+    alcance === "local"
+      ? `${PRACA.cidade} — venda local, dá para visitar`
+      : alcance === "regional"
+        ? `mesmo estado (${PRACA.uf})`
+        : `${lead.cidade ?? "cidade desconhecida"} — a operação é em ${PRACA.cidade}/${PRACA.uf}`,
+  );
+
   // ---------- 6. volume de avaliações (0–10) ----------
   const av = lead.avaliacoes ?? 0;
   add(
@@ -375,6 +418,21 @@ export function oportunidade(lead: Lead, ctx: ContextoLead = {}): Oportunidade {
     add(id, rotulo, -pontos, 0, base);
   };
 
+  /**
+   * Fora da praça pesa como rede pesa: não é defeito do negócio, é distância
+   * da operação. Some com a ausência dos 15 pontos do critério acima, o que dá
+   * 40 pontos de diferença entre um lead da cidade e um a 600 km — a mesma
+   * ordem de grandeza da penalidade de franquia, e proposital.
+   */
+  if (alcance === "fora") {
+    penalizar(
+      "fora-da-praca",
+      "Fora da praça",
+      25,
+      `${lead.cidade ?? "cidade desconhecida"} — sem visita, sem referência local`,
+    );
+  }
+
   if (classe.rede) penalizar("rede", "Franquia ou rede", 40, classe.motivosRede.join("; "));
   if (ehCategoriaDeGrandePorte(lead.categoria)) {
     penalizar("grande-porte", "Ramo de grande porte", 30, `categoria ${lead.categoria}`);
@@ -413,12 +471,21 @@ export function oportunidade(lead: Lead, ctx: ContextoLead = {}): Oportunidade {
   }
 
   /**
-   * Os positivos somam 120 e o resultado é cortado em 100. É deliberado: um
-   * lead precisa de ~83% dos sinais para cravar 100, então o topo da lista
-   * significa alguma coisa em vez de empatar dez empresas em nota máxima.
+   * NORMALIZADO pelo máximo possível, não cortado em 100.
+   *
+   * Antes o score era a soma crua com um teto: como os positivos somam 135,
+   * qualquer lead acima de 100 empatava com todos os outros acima de 100 — e
+   * o ranking parava de distinguir exatamente no topo, que é onde ele mais
+   * precisa funcionar. Deu para ver em teste: dois leads idênticos a não ser
+   * pelo site marcavam 100 os dois.
+   *
+   * O denominador vem da soma dos `maximo` dos critérios, não de um número
+   * digitado: acrescentar um critério novo reajusta a escala sozinho, sem
+   * ninguém lembrar de mexer aqui.
    */
+  const maximoPossivel = criterios.reduce((s, c) => s + c.maximo, 0);
   const bruto = criterios.reduce((s, c) => s + Math.max(0, c.ganhos), 0) - penalidade;
-  const score = Math.max(0, Math.min(100, bruto));
+  const score = Math.max(0, Math.min(100, Math.round((bruto / maximoPossivel) * 100)));
 
   const faixa =
     score >= LIMIAR.muitoAlta
@@ -531,12 +598,20 @@ export function contactabilidade(lead: Lead): Contactabilidade {
  * O score de oportunidade SEM o critério de contato. Máximo 80.
  * Responde "esta empresa vale a pena?" sem misturar "consigo falar com ela?".
  */
-export function qualidadeDoNegocio(lead: Lead): number {
-  const criterios = oportunidade(lead).criterios.filter((c) => !EIXO_CONTATO.has(c.id));
+export function qualidadeDoNegocio(lead: Lead, ctx: ContextoLead = {}): number {
+  /**
+   * Calcula DIRETO de `oportunidade`, nunca via `scores`.
+   *
+   * `scores` chama `contactabilidade`, que por sua vez chama esta função para
+   * decidir `precisaEnriquecer` — fechar esse ciclo estourou a pilha na base
+   * real. O caminho curto aqui é o que mantém a dependência em uma direção só.
+   */
+  const criterios = oportunidade(lead, ctx).criterios.filter((c) => !EIXO_CONTATO.has(c.id));
   // As penalidades (ganhos negativos) continuam contando: uma franquia não
   // vira bom negócio só por sair a coluna de contato da conta.
-  const total = criterios.reduce((s, c) => s + c.ganhos, 0);
-  return Math.max(0, Math.min(80, total));
+  const bruto = criterios.reduce((s, c) => s + c.ganhos, 0);
+  const maximo = criterios.reduce((s, c) => s + c.maximo, 0);
+  return Math.max(0, Math.min(100, Math.round((bruto / maximo) * 100)));
 }
 
 // ══════════════════════════════════════════════ compatibilidade
@@ -672,13 +747,13 @@ export function prioridadeComercial(lead: Lead, ctx: ContextoLead = {}): Priorid
     classe.porteEstimado === "pequeno" &&
     tel?.tipo === "celular" &&
     nicho?.prioridade !== "C" &&
-    score >= 70
+    score >= 55
   ) {
     return gaveta("A", `${encaixe.sistema} · negócio local com celular · score ${score}`);
   }
 
   // ---------- B: boa ----------
-  if (tel && score >= 50) {
+  if (tel && score >= 40) {
     return gaveta(
       "B",
       classe.porteEstimado === "pequeno"
@@ -731,10 +806,7 @@ export function scores(lead: Lead, ctx: ContextoLead = {}): Scores {
    * de contato, e é reescalado de 0–80 para 0–100 — senão um lead comercial
    * perfeito nunca passaria de 80 e a régua ficaria comprimida.
    */
-  const bruto = o.criterios
-    .filter((c) => !EIXO_CONTATO.has(c.id))
-    .reduce((s, c) => s + c.ganhos, 0);
-  const comercial = Math.max(0, Math.min(100, Math.round((bruto / 80) * 100)));
+  const comercial = qualidadeDoNegocio(lead, ctx);
 
   const contatabilidade = contactabilidade(lead).score;
 

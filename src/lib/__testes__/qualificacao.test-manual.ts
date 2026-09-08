@@ -154,10 +154,16 @@ function main() {
     s(comTel) > s(semTel),
     `${s(comTel)} vs ${s(semTel)} (diferença de ${s(comTel) - s(semTel)})`,
   );
+  /**
+   * A diferença BRUTA continua sendo 40 (20 de credito + 20 de penalidade),
+   * mas o score e normalizado pelo total de 135 pontos possiveis — entao na
+   * escala de 0 a 100 ela aparece como ~30. Testar o numero bruto aqui
+   * amarraria o teste a uma escala que ja mudou duas vezes.
+   */
   ok(
-    "5b. a diferença é de 40 pontos: 20 de crédito + 20 de penalidade",
-    s(comTel) - s(semTel) === 40,
-    `${s(comTel) - s(semTel)}`,
+    "5b. a diferenca equivale aos 40 pontos brutos na escala normalizada",
+    Math.abs(s(comTel) - s(semTel) - Math.round((40 / 135) * 100)) <= 1,
+    `${s(comTel) - s(semTel)} (esperado ~${Math.round((40 / 135) * 100)})`,
   );
   ok("5c. sem telefone e sem Instagram cai em D", nivel(semTel) === "D");
   ok(
@@ -198,16 +204,20 @@ function main() {
     `${s(inativa)} vs ${s(lead({ avaliacoes: 50 }))}`,
   );
   ok(
-    "7b. e a penalidade é de 15",
-    s(lead({ avaliacoes: 50 })) - s(inativa) === 15,
+    "7b. e a penalidade de 15 brutos aparece como ~11 na escala normalizada",
+    Math.abs(s(lead({ avaliacoes: 50 })) - s(inativa) - Math.round((15 / 135) * 100)) <= 1,
     `${s(lead({ avaliacoes: 50 })) - s(inativa)}`,
   );
 
   console.log("\n=== G. DUPLICATA ===");
   const base = lead({ avaliacoes: 50 });
   ok(
-    "8. possível duplicata perde 15 pontos",
-    oportunidade(base).score - oportunidade(base, { possivelDuplicata: true }).score === 15,
+    "8. possível duplicata perde os mesmos 15 pontos brutos",
+    Math.abs(
+      oportunidade(base).score -
+        oportunidade(base, { possivelDuplicata: true }).score -
+        Math.round((15 / 135) * 100),
+    ) <= 1,
     `${oportunidade(base).score} -> ${oportunidade(base, { possivelDuplicata: true }).score}`,
   );
 

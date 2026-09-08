@@ -13,6 +13,7 @@ import {
 import { scores, prioridadeComercial, oportunidade } from "@/lib/pontuacao";
 import { mesmoEstabelecimento } from "@/lib/dedup";
 import { FONTES_GRATUITAS } from "@/lib/enriquecimento-fila";
+import { alcanceDoLead } from "@/lib/territorio";
 import { MENSAGEM_BASE, montarMensagemUniversal } from "@/lib/mensagem-universal";
 
 /**
@@ -301,6 +302,49 @@ function main() {
     motivoDeDescarte(lead({ naoContatar: true, telefone: CELULAR })) === "opt-out" &&
       motivoDeDescarte(lead({ etapa: "sem-interesse", telefone: CELULAR })) === "encerrado",
     "nenhum DELETE envolvido — só filtro de tela",
+  );
+
+  console.log("\n=== J2. A PRAÇA DA OPERAÇÃO ===");
+  /**
+   * O problema que a praça resolve, em teste: sem ela, um lead idêntico em São
+   * Paulo empatava com um de Uberlândia — e como os leads antigos de fora TÊM
+   * telefone e os novos da cidade quase não têm, o topo da lista virava outra
+   * praça. Medido: 19 dos 20 primeiros eram de fora.
+   */
+  const daPraca = lead({ cidade: "Uberlândia", estado: "MG", telefone: CELULAR });
+  const outraCidade = lead({ cidade: "São Paulo", estado: "SP", telefone: "(11) 99999-8888" });
+  ok("21. lead da praça é 'local'", alcanceDoLead(daPraca) === "local");
+  ok("21b. lead de outro estado é 'fora'", alcanceDoLead(outraCidade) === "fora");
+  ok(
+    "21c. acento e caixa não separam a mesma cidade",
+    alcanceDoLead(lead({ cidade: "uberlandia", estado: "MG", telefone: CELULAR })) === "local",
+    "a base tem 'Uberlândia' e 'Uberlandia' gravados",
+  );
+  ok(
+    "22. mesmo estado mas DDD distante NÃO é regional",
+    alcanceDoLead(lead({ cidade: "Belo Horizonte", estado: "MG", telefone: "(31) 99999-8888" })) ===
+      "fora",
+    "BH é MG e fica a 550 km — fora do alcance de uma operação local",
+  );
+  ok(
+    "22b. mesmo DDD da praça é regional",
+    alcanceDoLead(lead({ cidade: "Uberaba", estado: "MG", telefone: "(34) 99999-8888" })) ===
+      "regional",
+  );
+  ok(
+    "23. lead da praça supera lead idêntico de fora",
+    scores(daPraca).final > scores({ ...daPraca, cidade: "São Paulo", estado: "SP" } as Lead).final,
+    `${scores(daPraca).final} vs ${scores({ ...daPraca, cidade: "São Paulo", estado: "SP" } as Lead).final}`,
+  );
+  ok(
+    "23b. e a diferença é de 40 pontos: 15 de crédito + 25 de penalidade",
+    scores(daPraca).final - scores({ ...daPraca, cidade: "São Paulo", estado: "SP" } as Lead).final >=
+      25,
+  );
+  ok(
+    "24. fora da praça NÃO é descarte — continua acionável e visível",
+    ehAcionavel(outraCidade) && motivoDeDescarte(outraCidade) === null,
+    "lead distante perde posição, não deixa de existir",
   );
 
   console.log("\n=== K. SEM API PAGA, O CRM CONTINUA FUNCIONANDO ===");
