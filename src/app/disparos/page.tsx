@@ -107,13 +107,43 @@ type Oportunidades = {
     leads: number;
     comWhatsapp: number;
     elegiveis: number;
+    contataveis: number;
+    qualificados: number;
+    prontosParaProspeccao: number;
     pequenos: number;
     comPotencialSistema: number;
+    potencialForte: number;
     semSiteConfirmado: number;
     siteNaoVerificado: number;
+    possiveisDuplicatas: number;
+    comInstagram: number;
+    naoContatados: number;
     prioridadeA: number;
     prioridadeB: number;
     prioridadeC: number;
+    prioridadeD: number;
+  };
+  canais: {
+    acionaveis: number;
+    whatsapp: number;
+    instagram: number;
+    ambos: number;
+    semCanal: number;
+    total: number;
+    pequenosLocais: number;
+    comSistemaAplicavel: number;
+    descartes: { motivo: string; rotulo: string; quantidade: number }[];
+  };
+  motivosD: { motivo: string; rotulo: string; quantidade: number }[];
+  enriquecimento: {
+    semTelefone: number;
+    precisamEnriquecer: number;
+    prioridadeAlta: number;
+    prioridadeMedia: number;
+    prioridadeBaixa: number;
+    encontrados: number;
+    potencialAsemTelefone: number;
+    potencialBsemTelefone: number;
   };
   leads: {
     id: string;
@@ -132,16 +162,39 @@ type Oportunidades = {
     sistema: string | null;
     modulos: string[];
     dor: string | null;
-    nivel: "A" | "B" | "C";
+    nivel: "A" | "B" | "C" | "D";
     nivelEmoji: string;
     nivelPorque: string;
     porte: string;
     porteRotulo: string;
+    porteEstimado: string;
+    porteEstimadoRotulo: string;
+    evidenciasPorte: string[];
     sinaisPequeno: string[];
     rede: boolean;
     motivosRede: string[];
     semSiteConfirmado: boolean;
     siteNaoVerificado: boolean;
+    prioridadeNicho: "A" | "B" | "C" | null;
+    prontoParaProspeccao: boolean;
+    possivelDuplicata: boolean;
+    porQue: { criterio: string; pontos: number; base: string }[];
+    contato: "confirmado" | "possivel-celular" | "telefone" | "sem-contato";
+    contatoRotulo: string;
+    precisaEnriquecer: boolean;
+    enriquecimentoPrioridade: "alta" | "media" | "baixa" | null;
+    enriquecimentoMotivo: string;
+    qualidadePotencial: "A" | "B" | "C" | "D";
+    telefoneOrigem: string | null;
+    canal: "ambos" | "whatsapp" | "instagram" | "sem-canal";
+    canalRotulo: string;
+    instagramUsername: string | null;
+    instagramUrl: string | null;
+    instagramStatus: string | null;
+    descarte: string | null;
+    scoreComercial: number;
+    scoreContatabilidade: number;
+    scoreFinal: number;
   }[];
 };
 
@@ -156,7 +209,10 @@ type Filtros = {
   somentePequenos: boolean;
   comPotencialSistema: boolean;
   semSiteConfirmado: boolean;
-  nivel: "A" | "B" | "C" | "todos";
+  nivel: "A" | "B" | "C" | "D" | "todos";
+  prontosParaProspeccao: boolean;
+  potencialForte: boolean;
+  naoContatado: boolean;
 };
 
 const FILTROS_PADRAO: Filtros = {
@@ -172,21 +228,29 @@ const FILTROS_PADRAO: Filtros = {
   comPotencialSistema: false,
   semSiteConfirmado: false,
   nivel: "todos",
+  prontosParaProspeccao: false,
+  potencialForte: false,
+  naoContatado: false,
 };
 
 /**
+/**
  * 🎯 MELHORES OPORTUNIDADES: o público mais valioso, num clique.
  *
- * É a combinação pequeno + WhatsApp + potencial de sistema. "Sem site" fica de
- * FORA de propósito: no OpenStreetMap a ausência de site quase nunca é
- * confirmada, e exigi-la aqui esvaziaria a lista justamente do que ela deveria
- * mostrar. Quem quiser esse corte tem o botão 🌐 ao lado.
+ * É a gaveta A dentro de "pronto para prospecção" — ou seja, negócio pequeno,
+ * com celular, num ramo que a ICG Tech atende, e que passa em todas as travas
+ * da fila (opt-out, recontato, mensagem viva, duplicata, score mínimo).
+ *
+ * "Sem site" fica de FORA de propósito, e agora por dois motivos: no
+ * OpenStreetMap a ausência de site quase nunca é confirmada, e — mais
+ * importante — falta de site não é o critério de compra. Quem quiser esse
+ * corte tem o botão 🌐 ao lado.
  */
 const MELHORES: Filtros = {
   ...FILTROS_PADRAO,
   somenteWhatsapp: true,
-  somentePequenos: true,
-  comPotencialSistema: true,
+  prontosParaProspeccao: true,
+  nivel: "A",
 };
 
 /** Espelho de /api/campanhas/revisao?id= */
@@ -344,6 +408,36 @@ export default function Disparos() {
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [carregandoOportunidades, setCarregandoOportunidades] = useState(false);
 
+  /**
+   * Estado da fila de ENRIQUECIMENTO. Vive separado do estado de disparo de
+   * propósito: são duas operações que nunca se cruzam — uma melhora cadastro,
+   * a outra fala com o cliente.
+   */
+  const [filaEnriq, setFilaEnriq] = useState<{
+    resumo: {
+      pendente: number;
+      processando: number;
+      encontrado: number;
+      nao_encontrado: number;
+      erro: number;
+      total: number;
+    };
+    itens: {
+      id: string;
+      lead: string;
+      categoria: string | null;
+      status: string;
+      faixa: string | null;
+      motivo: string | null;
+      telefoneEncontrado: string | null;
+      fonte: string | null;
+      erro: string | null;
+    }[];
+  } | null>(null);
+  const [enriquecendo, setEnriquecendo] = useState(false);
+  const [verFila, setVerFila] = useState(false);
+  const [ultimoEnriq, setUltimoEnriq] = useState<string | null>(null);
+
   // ---------- revisão: os cards da campanha em preparação ----------
   const [cards, setCards] = useState<CardRevisao[] | null>(null);
   const [editando, setEditando] = useState<string | null>(null);
@@ -374,6 +468,34 @@ export default function Disparos() {
    * a cada clique. O que ele traz de diferente da prévia antiga é o TERCEIRO
    * número: quantos ficaram de fora e por quê. Ver lib/oportunidades.ts.
    */
+  const carregarFilaEnriq = useCallback(async () => {
+    setFilaEnriq(await fetch("/api/enriquecimento").then((r) => r.json()));
+  }, []);
+
+  /**
+   * Enfileira os melhores leads sem telefone e processa um lote.
+   *
+   * NÃO envia mensagem. O botão só existe nesta tela por conveniência — a rota
+   * que ele chama não toca em `mensagens`, na fila de envio nem na Bridge.
+   */
+  const enriquecer = useCallback(async () => {
+    setEnriquecendo(true);
+    try {
+      const r = await fetch("/api/enriquecimento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao: "ambos", max: 10 }),
+      }).then((x) => x.json());
+      setUltimoEnriq(
+        `${r.enfileirados} enfileirados · ${r.processados} processados · ` +
+          `${r.encontrados} telefone(s) encontrado(s)`,
+      );
+      await carregarFilaEnriq();
+    } finally {
+      setEnriquecendo(false);
+    }
+  }, [carregarFilaEnriq]);
+
   const carregarOportunidades = useCallback(async () => {
     setCarregandoOportunidades(true);
     try {
@@ -390,6 +512,9 @@ export default function Disparos() {
       if (filtros.comPotencialSistema) q.set("comPotencialSistema", "1");
       if (filtros.semSiteConfirmado) q.set("semSiteConfirmado", "1");
       if (filtros.nivel !== "todos") q.set("nivel", filtros.nivel);
+      if (filtros.prontosParaProspeccao) q.set("prontosParaProspeccao", "1");
+      if (filtros.potencialForte) q.set("potencialForte", "1");
+      if (filtros.naoContatado) q.set("naoContatado", "1");
       q.set("quantidade", "200");
       const r = await fetch(`/api/disparo/oportunidades?${q}`).then((x) => x.json());
       setOportunidades(r);
@@ -975,10 +1100,16 @@ export default function Disparos() {
       {oportunidades && (
         <section className="surgir mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">
           {[
-            { r: "Leads", v: oportunidades.totais.leads },
-            { r: "Com WhatsApp", v: oportunidades.totais.comWhatsapp },
-            { r: "Elegíveis", v: oportunidades.totais.elegiveis, destaque: true },
-            { r: "Aguardando IA", v: painel.estados?.["rascunho"] ?? 0 },
+            /**
+             * O PAINEL POR CANAL. "Total de leads" saiu do topo de propósito:
+             * ele anunciava 1.057 quando 127 eram abordáveis, e um número que
+             * erra por 8x atrapalha em vez de informar. O total continua
+             * visível, em segundo plano, na linha abaixo.
+             */
+            { r: "🔥 Ambos", v: oportunidades.canais.ambos, destaque: true },
+            { r: "📱 WhatsApp", v: oportunidades.canais.whatsapp },
+            { r: "📸 Instagram", v: oportunidades.canais.instagram },
+            { r: "✅ Acionáveis", v: oportunidades.canais.acionaveis },
             { r: "Aprovadas", v: (painel.estados?.["aprovada"] ?? 0) + (painel.estados?.["na-fila"] ?? 0) },
             { r: "Enviadas", v: painel.estados?.["enviada"] ?? 0 },
           ].map((i) => (
@@ -1002,6 +1133,31 @@ export default function Disparos() {
       )}
 
       {/**
+       * O total bruto e o que ficou de fora — em segundo plano, que é onde
+       * essa informação pertence. Ver o painel por canal acima.
+       */}
+      {oportunidades && (
+        <p className="surgir -mt-4 mb-5 text-[12px] text-[var(--texto-3)]">
+          {oportunidades.canais.total} leads na base ·{" "}
+          <strong className="text-[var(--texto-2)]">
+            {oportunidades.canais.acionaveis} comercialmente utilizáveis
+          </strong>
+          {oportunidades.canais.descartes.length > 0 && (
+            <>
+              {" "}
+              · fora da visão comercial:{" "}
+              {oportunidades.canais.descartes
+                .map((d) => `${d.quantidade} ${d.rotulo.toLowerCase()}`)
+                .join(" · ")}
+            </>
+          )}
+          {" · "}
+          🏪 {oportunidades.canais.pequenosLocais} pequenos/locais · 🛠{" "}
+          {oportunidades.canais.comSistemaAplicavel} com sistema aplicável
+        </p>
+      )}
+
+      {/**
        * O perfil da base, em uma linha clicável.
        *
        * Cada número é também o filtro dele: ver "742 pequenos negócios" e ter
@@ -1022,11 +1178,38 @@ export default function Disparos() {
             🎯 Melhores oportunidades
           </button>
 
+          {/**
+           * A fila do Instagram é outra TELA, não outro filtro — porque é
+           * outro trabalho: manual, feito enquanto o WhatsApp dispara sozinho.
+           */}
+          <Link
+            href="/cacada"
+            className="rounded-full bg-[var(--superficie)] px-3.5 py-1.5 text-[12px] text-[var(--texto-2)] transition hover:bg-[var(--superficie-2)]"
+          >
+            🎯 Modo caça{" "}
+            <span className="tabular-nums font-semibold">
+              {oportunidades.canais.acionaveis}
+            </span>
+          </Link>
+
+          <Link
+            href="/instagram"
+            className="rounded-full bg-[var(--superficie)] px-3.5 py-1.5 text-[12px] text-[var(--texto-2)] transition hover:bg-[var(--superficie-2)]"
+          >
+            📸 Fila manual do Instagram{" "}
+            <span className="tabular-nums font-semibold">
+              {oportunidades.canais.instagram}
+            </span>
+          </Link>
+
           {(
             [
-              { r: "🏪 Pequenos negócios", v: oportunidades.totais.pequenos, k: "somentePequenos" },
+              { r: "✅ Prontos p/ prospecção", v: oportunidades.totais.prontosParaProspeccao, k: "prontosParaProspeccao" },
               { r: "📱 Com WhatsApp", v: oportunidades.totais.comWhatsapp, k: "somenteWhatsapp" },
-              { r: "🛠 Potencial de sistema", v: oportunidades.totais.comPotencialSistema, k: "comPotencialSistema" },
+              { r: "🛠 Potencial forte", v: oportunidades.totais.potencialForte, k: "potencialForte" },
+              { r: "🏪 Pequenos negócios", v: oportunidades.totais.pequenos, k: "somentePequenos" },
+              { r: "🚫 Não contatados", v: oportunidades.totais.naoContatados, k: "naoContatado" },
+              { r: "📷 Instagram", v: oportunidades.totais.comInstagram, k: "comInstagram" },
               { r: "🌐 Sem site", v: oportunidades.totais.semSiteConfirmado, k: "semSiteConfirmado" },
             ] as const
           ).map((i) => {
@@ -1046,14 +1229,14 @@ export default function Disparos() {
             );
           })}
 
-          {(["A", "B", "C"] as const).map((n) => {
-            const total =
-              n === "A"
-                ? oportunidades.totais.prioridadeA
-                : n === "B"
-                  ? oportunidades.totais.prioridadeB
-                  : oportunidades.totais.prioridadeC;
-            const emoji = n === "A" ? "🔥" : n === "B" ? "🟡" : "🔵";
+          {(["A", "B", "C", "D"] as const).map((n) => {
+            const total = {
+              A: oportunidades.totais.prioridadeA,
+              B: oportunidades.totais.prioridadeB,
+              C: oportunidades.totais.prioridadeC,
+              D: oportunidades.totais.prioridadeD,
+            }[n];
+            const emoji = { A: "🔥", B: "🟡", C: "🔵", D: "⚪" }[n];
             return (
               <button
                 key={n}
@@ -1076,6 +1259,138 @@ export default function Disparos() {
               {oportunidades.totais.siteNaoVerificado} com site não conferido — o mapa não
               informa, então não contam como “sem site”
             </span>
+          )}
+        </section>
+      )}
+
+      {/**
+       * 🔎 ENRIQUECIMENTO — o gargalo, aberto e com o que fazer a respeito.
+       *
+       * Fica ao lado do funil de disparo, mas é outra operação: aqui não sai
+       * mensagem nenhuma. O que esta seção faz, no melhor caso, é gravar um
+       * telefone no cadastro.
+       */}
+      {oportunidades && (
+        <section className="cartao surgir mb-6 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <p className="text-[15px] font-semibold">🔎 Enriquecimento</p>
+            <p className="text-[12px] text-[var(--texto-3)]">
+              procura telefone — não envia mensagem
+            </p>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              { r: "Potencial forte", v: oportunidades.totais.potencialForte },
+              { r: "Sem telefone", v: oportunidades.enriquecimento.semTelefone },
+              {
+                r: "Precisam enriquecer",
+                v: oportunidades.enriquecimento.precisamEnriquecer,
+                destaque: true,
+              },
+              { r: "Telefone encontrado", v: oportunidades.enriquecimento.encontrados },
+            ].map((i) => (
+              <div
+                key={i.r}
+                className={`rounded-[10px] px-2.5 py-2.5 text-center ${
+                  i.destaque ? "bg-[var(--azul-fraco)]" : "bg-[var(--superficie)]"
+                }`}
+              >
+                <p
+                  className={`text-[19px] font-semibold tabular-nums ${
+                    i.destaque ? "text-[var(--azul)]" : ""
+                  }`}
+                >
+                  {i.v}
+                </p>
+                <p className="text-[11px] leading-tight text-[var(--texto-3)]">{i.r}</p>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-2.5 text-[12.5px] text-[var(--texto-3)]">
+            Prioridade:{" "}
+            <strong className="text-[var(--texto-2)]">
+              {oportunidades.enriquecimento.prioridadeAlta} alta
+            </strong>{" "}
+            · {oportunidades.enriquecimento.prioridadeMedia} média ·{" "}
+            {oportunidades.enriquecimento.prioridadeBaixa} baixa. Sem telefone com
+            potencial A: {oportunidades.enriquecimento.potencialAsemTelefone} · potencial B:{" "}
+            {oportunidades.enriquecimento.potencialBsemTelefone}.
+          </p>
+
+          {filaEnriq && filaEnriq.resumo.total > 0 && (
+            <p className="mt-1 text-[12.5px] text-[var(--texto-3)]">
+              Fila: {filaEnriq.resumo.pendente} aguardando · {filaEnriq.resumo.encontrado}{" "}
+              encontrados · {filaEnriq.resumo.nao_encontrado} sem resultado ·{" "}
+              {filaEnriq.resumo.erro} com erro
+            </p>
+          )}
+          {ultimoEnriq && (
+            <p className="mt-1 text-[12.5px] text-[var(--azul)]">{ultimoEnriq}</p>
+          )}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={enriquecer} disabled={enriquecendo} className="btn-primario">
+              {enriquecendo ? "Procurando…" : "ENRIQUECER MELHORES LEADS"}
+            </button>
+            <button
+              onClick={() => {
+                setVerFila((v) => !v);
+                if (!filaEnriq) void carregarFilaEnriq();
+              }}
+              className="btn-secundario"
+            >
+              {verFila ? "OCULTAR FILA" : "VER FILA"}
+            </button>
+          </div>
+
+          {verFila && (
+            <ul className="mt-3 space-y-1 border-t border-[var(--linha)] pt-3">
+              {(filaEnriq?.itens ?? []).slice(0, 40).map((i) => (
+                <li key={i.id} className="text-[12.5px]">
+                  <span className="text-[var(--texto-3)]">
+                    {i.status === "encontrado"
+                      ? "🟢"
+                      : i.status === "pendente"
+                        ? "⏳"
+                        : i.status === "erro"
+                          ? "⚠"
+                          : "○"}{" "}
+                  </span>
+                  <strong>{i.lead}</strong>{" "}
+                  <span className="text-[var(--texto-3)]">
+                    {i.telefoneEncontrado
+                      ? `→ ${i.telefoneEncontrado} (${i.fonte})`
+                      : (i.erro ?? i.motivo ?? "")}
+                  </span>
+                </li>
+              ))}
+              {filaEnriq && filaEnriq.itens.length === 0 && (
+                <li className="text-[12.5px] text-[var(--texto-3)]">
+                  Fila vazia — clique em ENRIQUECER para montá-la.
+                </li>
+              )}
+            </ul>
+          )}
+
+          {/**
+           * A abertura do D. Fica aqui, e não no topo, porque a resposta para
+           * a maior causa é justamente o botão acima.
+           */}
+          {oportunidades.motivosD.length > 0 && (
+            <div className="mt-4 border-t border-[var(--linha)] pt-3">
+              <p className="text-[13px] font-medium">
+                ⚪ D — {oportunidades.totais.prioridadeD} leads não recomendados, por quê:
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {oportunidades.motivosD.map((m) => (
+                  <li key={m.motivo} className="text-[12.5px] text-[var(--texto-3)]">
+                    {m.quantidade} — {m.rotulo}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </section>
       )}
@@ -1339,13 +1654,25 @@ export default function Disparos() {
 
                       <div className="mt-1 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[12px] text-[var(--texto-3)]">
                         <span>{l.segmento}</span>
-                        <span>· {l.porteRotulo}</span>
+                        {l.prioridadeNicho && <span>· ramo {l.prioridadeNicho}</span>}
+                        {/**
+                         * Dois campos de porte, com rótulos diferentes de
+                         * propósito: `porteRotulo` é o cadastro (quase sempre
+                         * "não informado") e `porteEstimadoRotulo` é palpite.
+                         * Só o palpite aparece aqui — o cadastro vazio não
+                         * informa nada e ocuparia espaço afirmando isso.
+                         */}
+                        <span>· {l.porteEstimadoRotulo}</span>
                         {l.temWhatsapp && <span>· 📱 WhatsApp</span>}
                         {l.temInstagram && <span>· Instagram</span>}
                         {l.semSiteConfirmado && <span>· 🌐 sem site</span>}
                         {l.siteNaoVerificado && <span>· site não conferido</span>}
                         {l.temSite && !l.semSiteConfirmado && <span>· tem site</span>}
                         {l.avaliacoes ? <span>· {l.avaliacoes} avaliações</span> : null}
+                        {l.prontoParaProspeccao && (
+                          <span className="text-[var(--azul)]">· ✅ pronto</span>
+                        )}
+                        {l.possivelDuplicata && <span>· ⚠ possível duplicata</span>}
                       </div>
 
                       {l.sistema && (
@@ -1354,6 +1681,20 @@ export default function Disparos() {
                         </p>
                       )}
                       <p className="mt-0.5 text-[12px] text-[var(--texto-3)]">{l.nivelPorque}</p>
+
+                      {/**
+                       * Por que este lead está aqui, em números. Um score de
+                       * 0 a 100 sem a conta atrás é pedir confiança cega — e
+                       * quem revisa precisa conferir antes de mandar mensagem
+                       * para o WhatsApp de um estranho.
+                       */}
+                      {l.porQue.length > 0 && (
+                        <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--texto-3)]">
+                          {l.porQue
+                            .map((x) => `${x.pontos > 0 ? "+" : ""}${x.pontos} ${x.criterio}`)
+                            .join(" · ")}
+                        </p>
+                      )}
                     </li>
                   ))}
                   {oportunidades.leads.length > 30 && (

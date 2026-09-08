@@ -7,6 +7,8 @@ import { resolverSaudacao } from "@/lib/saudacao";
 import { registrar, textoPara } from "@/lib/campanha";
 import { avaliar } from "@/lib/oportunidade";
 import { pontuar } from "@/lib/pontuacao";
+import { canalDoLead, motivoDeDescarte, ROTULO_DESCARTE } from "@/lib/canais";
+import { deduplicar } from "@/lib/dedup";
 import { categoriaSingular } from "@/lib/categoria-nome";
 import type { Etapa } from "@/lib/db/schema";
 
@@ -83,6 +85,16 @@ async function elegiveis(
   const recusar = (motivo: string) =>
     contagem.set(motivo, (contagem.get(motivo) ?? 0) + 1);
 
+  /**
+   * Duplicatas, calculadas uma vez para a base inteira. Quem já tem telefone
+   * fica como o cadastro bom; o outro é que sai.
+   */
+  const duplicados = new Set(
+    deduplicar(
+      [...base].sort((a, b) => Number(Boolean(b.telefone)) - Number(Boolean(a.telefone))),
+    ).duplicados.map((d) => (d.item as Lead).id),
+  );
+
   for (const lead of base) {
     /**
      * Lead que já saiu do começo do funil não entra em disparo em massa.
@@ -97,7 +109,48 @@ async function elegiveis(
       continue;
     }
 
-    const check = avaliarContato(lead, cfg, porLead.get(lead.id) ?? []);
+    /**
+     * ═══ A FILA DE WHATSAPP ═══
+     *
+     * Este bloco é a correção do buraco que a auditoria encontrou: o painel
+     * aplicava porte, encaixe de sistema e telefone fixo, mas a CAMPANHA vinha
+     * por aqui e não aplicava nada disso. Medido antes da correção: dos 61
+     * leads que o botão oferecia, 48 (79%) eram telefone fixo, 3 não tinham
+     * sistema aplicável e 2 eram rede.
+     *
+     * A ordem é a mais barata primeiro, e cada recusa tem motivo próprio para
+     * a tela conseguir explicar o funil em vez de só encolher.
+     */
+    const canal = canalDoLead(lead);
+    if (canal === "instagram") {
+      // Existe, é bom lead — mas é abordagem MANUAL. Nunca entra em campanha.
+      recusar("Só Instagram — vai para a fila manual.");
+      continue;
+    }
+    if (canal === "sem-canal") {
+      recusar("Sem WhatsApp e sem Instagram.");
+      continue;
+    }
+
+    const descarte = motivoDeDescarte(lead);
+    if (descarte) {
+      recusar(`${ROTULO_DESCARTE[descarte]}.`);
+      continue;
+    }
+
+    if (duplicados.has(lead.id)) {
+      recusar("Possível duplicata de outro cadastro.");
+      continue;
+    }
+
+    /**
+     * `paraNovaCampanha: true` — a mesma trava que o painel usa. Sem ela, o
+     * telefone fixo passava direto para a campanha e só voltava como erro
+     * "não tem WhatsApp" depois de queimar uma vaga do teto diário.
+     */
+    const check = avaliarContato(lead, cfg, porLead.get(lead.id) ?? [], {
+      paraNovaCampanha: true,
+    });
     if (!check.pode) {
       recusar(check.motivo);
       continue;

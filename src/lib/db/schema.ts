@@ -63,6 +63,22 @@ export type SocioSalvo = {
 };
 
 /**
+ * Andamento da abordagem MANUAL por Instagram.
+ *
+ * Paralelo ao funil de WhatsApp (`etapa`), nunca o mesmo campo: as duas
+ * abordagens acontecem ao mesmo tempo sobre o mesmo lead, e uma não pode
+ * mexer no estado da outra. Ver lib/canais.ts.
+ */
+export const STATUS_INSTAGRAM = [
+  "nao-abordado",
+  "abordado",
+  "respondeu",
+  "sem-interesse",
+  "cliente",
+] as const;
+export type StatusInstagram = (typeof STATUS_INSTAGRAM)[number];
+
+/**
  * Um lead = um estabelecimento vindo do Google Places.
  * `placeId` é a chave natural do Google — usamos pra nunca duplicar
  * o mesmo negócio entre buscas diferentes.
@@ -126,6 +142,41 @@ export const leads = pgTable(
      * primeiro). Fica em jsonb porque a forma varia — de sócio único a sete —
      * e nada aqui é consultado por coluna.
      */
+    /**
+     * PROCEDÊNCIA DO TELEFONE — de onde veio, quando, e o quanto se confia.
+     *
+     * Existe porque um número achado por enriquecimento não é o mesmo dado que
+     * um número que veio do cadastro do mapa. Sem essa marca, os dois ficam
+     * indistinguíveis na hora de decidir se vale mandar mensagem — e um palpite
+     * mal-avaliado vira mensagem para o WhatsApp de um estranho.
+     *
+     * `telefoneOrigem` é a fonte ("osm", "site-proprio", "places", "manual").
+     * `telefoneConfianca` vai de 0 a 100 e é o que separa "achei o número no
+     * rodapé do site da própria empresa" de "achei um número numa página que
+     * cita a empresa".
+     */
+    telefoneOrigem: text("telefone_origem"),
+    telefoneEncontradoEm: timestamp("telefone_encontrado_em", { withTimezone: true }),
+    telefoneConfianca: integer("telefone_confianca"),
+
+    /**
+     * O PIPELINE MANUAL DE INSTAGRAM — paralelo ao funil, nunca misturado.
+     *
+     * `instagramStatus` é o andamento da abordagem feita à mão pelo Instagram.
+     * Mora numa coluna PRÓPRIA, e não em `etapa`, de propósito: `etapa` é o
+     * funil do WhatsApp, e reaproveitá-la faria "marquei abordado no Instagram"
+     * mexer na fila de disparo — exatamente o acoplamento que não pode existir.
+     *
+     * `instagramUsername` guarda o @ já extraído e validado (ver lib/canais),
+     * porque a coluna `instagram` recebeu de tudo na coleta, inclusive link de
+     * post, que não serve para prospectar.
+     */
+    instagramUsername: text("instagram_username"),
+    instagramOrigem: text("instagram_origem"),
+    instagramConfianca: integer("instagram_confianca"),
+    instagramStatus: text("instagram_status").$type<StatusInstagram>(),
+    instagramAbordadoEm: timestamp("instagram_abordado_em", { withTimezone: true }),
+
     cnpj: text("cnpj"),
     razaoSocial: text("razao_social"),
     socios: jsonb("socios").$type<SocioSalvo[]>(),
@@ -841,6 +892,68 @@ export const geracaoFila = pgTable(
     uniqueIndex("geracao_fila_campanha_lead_idx").on(t.campanhaId, t.leadId),
     index("geracao_fila_proxima_idx").on(t.status, t.proximaTentativaEm),
     index("geracao_fila_campanha_idx").on(t.campanhaId),
+  ],
+);
+
+/**
+ * A fila de ENRIQUECIMENTO: achar o telefone de quem não tem.
+ *
+ * TABELA PRÓPRIA, e isso é o ponto. Ela é vizinha de `geracao_fila` e de
+ * `mensagens`, mas nunca se mistura com elas:
+ *
+ *   geracao_fila  escreve MENSAGEM     → alimenta a revisão
+ *   mensagens     ENVIA para o cliente → alimenta a Bridge
+ *   esta          melhora o CADASTRO   → não gera nem envia nada
+ *
+ * Um item processado aqui, no melhor caso, grava um telefone no lead. Nada
+ * mais. Não aprova, não enfileira mensagem e não conversa com o WhatsApp —
+ * misturar as duas coisas transformaria "procurei um número" em "mandei uma
+ * mensagem", que é exatamente o acidente que a separação evita.
+ */
+export const STATUS_ENRIQUECIMENTO = [
+  "pendente",
+  "processando",
+  "encontrado",
+  "nao_encontrado",
+  "erro",
+] as const;
+export type StatusEnriquecimento = (typeof STATUS_ENRIQUECIMENTO)[number];
+
+export const enriquecimentoFila = pgTable(
+  "enriquecimento_fila",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+
+    status: text("status").$type<StatusEnriquecimento>().notNull().default("pendente"),
+    /** 1 = A+forte · 2 = B+forte · 3 = A · 4 = B. Menor sai primeiro. */
+    prioridade: integer("prioridade").notNull().default(4),
+    /** "alta" | "media" | "baixa" — o rótulo que a tela mostra. */
+    faixa: text("faixa"),
+    /** Por que este lead entrou na fila, em português. */
+    motivo: text("motivo"),
+
+    tentativas: integer("tentativas").notNull().default(0),
+    /** Quando foi reservado. Distingue "processando agora" de "morreu no meio". */
+    processandoDesde: timestamp("processando_desde", { withTimezone: true }),
+
+    /** O que foi achado, quando o item termina em `encontrado`. */
+    telefoneEncontrado: text("telefone_encontrado"),
+    fonte: text("fonte"),
+    confianca: integer("confianca"),
+    /** As fontes já tentadas, para não repetir consulta cara à toa. */
+    fontesTentadas: jsonb("fontes_tentadas").$type<string[]>().default([]),
+    erro: text("erro"),
+
+    criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /** Um lead entra uma vez só. Reenfileirar colide em vez de duplicar. */
+    uniqueIndex("enriquecimento_fila_lead_idx").on(t.leadId),
+    index("enriquecimento_fila_fila_idx").on(t.status, t.prioridade),
   ],
 );
 

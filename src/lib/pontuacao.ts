@@ -1,7 +1,8 @@
 import type { Lead } from "@/lib/db/schema";
 import { avaliarSistema } from "@/lib/sistemas";
 import { categoriaSingular } from "@/lib/categoria-nome";
-import { classificarPorte } from "@/lib/porte";
+import { classificarPorte, ehCategoriaDeGrandePorte } from "@/lib/porte";
+import { SEM_SITE } from "@/lib/places/audit";
 import { nichoPrioritario } from "@/lib/nichos-locais";
 import { validarTelefone, telefoneDoLead } from "@/lib/telefone";
 
@@ -53,8 +54,36 @@ import { validarTelefone, telefoneDoLead } from "@/lib/telefone";
  *     Hoje `lib/porte.ts` identifica rede por evidência (tag `brand` no mapa,
  *     marca nacional no nome) e ela leva -40.
  *
- * Os pesos positivos somam exatamente 100: ramo 20 · sistema 18 · sinais de
- * pequeno 20 · contato 20 · sem site 12 · atividade 10.
+ * ═══ REVISÃO PARA VENDA DE SISTEMA (a régua atual) ═══
+ *
+ * A revisão anterior tirou o site do topo. Esta muda a PERGUNTA: em vez de
+ * "quem tem lacuna digital?", a régua responde "se eu falar com o dono desta
+ * empresa, existe solução da ICG Tech que faz sentido oferecer?".
+ *
+ * Consequências que valem registrar, porque invertem comportamentos antigos:
+ *
+ *  - "não tem site" caiu para 5 pontos de 120. Continua contando, como sinal
+ *    secundário; deixou de ser argumento capaz de levar alguém ao topo.
+ *  - "ramo com sistema aplicável" virou o maior peso (25) e vale ZERO sem
+ *    encaixe — nicho prioritário sem processo mapeado não pontua.
+ *  - ramo de grande porte (banco, hospital, universidade, órgão público) leva
+ *    -30 além dos -40 de rede, porque não compra como uma oficina compra.
+ *
+ * PESOS (positivos somam 120, resultado cortado em 100):
+ *
+ *   +25 ramo com sistema claramente aplicável
+ *   +20 WhatsApp ou celular disponível
+ *   +15 negócio local independente
+ *   +15 sinais de operação recorrente
+ *   +10 Instagram ativo
+ *   +10 volume de avaliações
+ *   +10 nota boa
+ *   +10 processo que pode ser organizado
+ *   +5  não possui site próprio
+ *
+ *   -40 franquia ou rede          -20 sem telefone
+ *   -30 ramo de grande porte      -15 inativa      -15 possível duplicata
+ *   -10 nenhum sinal de operação comercial
  */
 
 // ══════════════════════════════════════════════ potencial por segmento
@@ -87,6 +116,16 @@ export function potencialDoSegmento(lead: Lead): PotencialSegmento {
 // ══════════════════════════════════════════════ oportunidade
 
 export type Criterio = {
+  /**
+   * Identificador ESTÁVEL do critério.
+   *
+   * Existe porque o rótulo é texto de tela e muda: renomear "Contato
+   * utilizável" para "WhatsApp ou celular disponível" quebrou em silêncio o
+   * `qualidadeDoNegocio`, que filtrava por `rotulo.startsWith("Contato")` e
+   * passou a somar de volta justamente o eixo que devia excluir. Quem precisa
+   * de um critério específico casa por `id`, nunca por texto.
+   */
+  id: string;
   rotulo: string;
   ganhos: number;
   maximo: number;
@@ -120,12 +159,13 @@ const LIMIAR = { muitoAlta: 80, alta: 66, media: 42 };
  * Os limiares 80/66/42 foram calibrados sobre a base antiga (282 pousadas e
  * chalés), onde davam 14% / 28% / 37% / 21%.
  *
- * Sobre a base nova de Uberlândia eles dão 4% / 9% / 52% / 35% — muito mais
- * apertados. E a explicação NÃO é que os leads sejam piores: é que o
- * OpenStreetMap quase não publica telefone na cidade (medido: 171 números em
- * 4.280 estabelecimentos mapeados). Sem telefone, o lead perde os 20 pontos de
- * contato; sem tag de site, perde os 12 de "sem site próprio" porque
- * `nao-verificado` não pontua. O teto real de quem não tem contato é 68.
+ * Sobre a base nova de Uberlândia eles ficam bem mais apertados, e a explicação
+ * NÃO é que os leads sejam piores: é que o OpenStreetMap quase não publica
+ * telefone na cidade (medido: 171 números em 4.280 estabelecimentos mapeados).
+ * Sem telefone o lead perde os 20 pontos de contato E ainda leva -20 de
+ * penalidade — uma diferença de 40 pontos, que é o desenho certo para uma
+ * régua de prospecção: não adianta ser bom negócio se não há como falar com
+ * ele hoje.
  *
  * Mexer nos limiares agora só maquiaria isso: renomearia de "média" para
  * "alta" um lead com quem não há como falar. O número baixo é informação
@@ -136,168 +176,247 @@ const LIMIAR = { muitoAlta: 80, alta: 66, media: 42 };
  * importa, os limiares refletem a distribuição.
  */
 
-export function oportunidade(lead: Lead): Oportunidade {
+/**
+ * O que só a BASE sabe sobre este lead, e a função pura não tem como saber.
+ *
+ * Duplicidade é a única coisa aqui: descobrir que dois cadastros são o mesmo
+ * lugar exige comparar com todos os outros, e carregar a base inteira dentro
+ * de uma função de score a tornaria impossível de testar e lenta de chamar.
+ * Quem tem esse contexto (o painel) calcula uma vez e passa o resultado.
+ */
+export type ContextoLead = {
+  possivelDuplicata?: boolean;
+};
+
+export function oportunidade(lead: Lead, ctx: ContextoLead = {}): Oportunidade {
   const criterios: Criterio[] = [];
-  const add = (rotulo: string, ganhos: number, maximo: number, base: string) =>
-    criterios.push({ rotulo, ganhos, maximo, base });
+  const add = (id: string, rotulo: string, ganhos: number, maximo: number, base: string) =>
+    criterios.push({ id, rotulo, ganhos, maximo, base });
 
   const classe = classificarPorte(lead);
   const nicho = nichoPrioritario(lead.categoria);
-
-  // ---------- 1. ramo prioritário (0–20) ----------
-  const pot = potencialDoSegmento(lead);
-  const pontosNicho = nicho
-    ? nicho.recorrente
-      ? 20
-      : 15
-    : pot === "alto"
-      ? 12
-      : pot === "medio"
-        ? 8
-        : 3;
-  add(
-    "Ramo prioritário para sistema",
-    pontosNicho,
-    20,
-    nicho
-      ? nicho.recorrente
-        ? `${nicho.rotulo} — serviço recorrente, o cliente volta sozinho`
-        : `${nicho.rotulo} — ramo prioritário`
-      : pot === "alto"
-        ? "Ramo com agenda, OS ou estoque"
-        : pot === "medio"
-          ? "Ramo com operação, mas menos dependente de sistema"
-          : "Fora da lista de nichos prioritários",
-  );
-
-  // ---------- 2. potencial de sistema (0–18) ----------
   const encaixe = avaliarSistema(lead);
+  const tel = validarTelefone(telefoneDoLead(lead));
   const modulos = encaixe.serve ? encaixe.modulos.length : 0;
+
+  /**
+   * ---------- 1. o ramo tem sistema aplicável (0–25) ----------
+   *
+   * O critério de maior peso, e a mudança de eixo desta régua: a pergunta
+   * principal deixou de ser "falta site?" e passou a ser "existe solução da
+   * ICG Tech que faz sentido oferecer a esta empresa?".
+   *
+   * Vale zero sem encaixe. Um ramo prioritário sem processo mapeado não
+   * pontua, porque prioridade de nicho sem sistema para vender é lista de
+   * empresas, não lista de oportunidades.
+   */
+  const pot = potencialDoSegmento(lead);
+  const pontosNicho = !encaixe.serve
+    ? 0
+    : nicho?.prioridade === "A"
+      ? 25
+      : nicho?.prioridade === "B"
+        ? 18
+        : nicho
+          ? 12
+          : pot === "alto"
+            ? 12
+            : pot === "medio"
+              ? 8
+              : 5;
   add(
-    "Processos que um sistema organiza",
-    Math.min(18, modulos * 3),
-    18,
-    encaixe.serve ? `${modulos} módulos identificados` : "Nenhum processo mapeado para o ramo",
+    "nicho",
+    "Ramo com sistema claramente aplicável",
+    pontosNicho,
+    25,
+    !encaixe.serve
+      ? "Nenhum processo mapeado para o ramo"
+      : nicho
+        ? `${nicho.rotulo} — prioridade ${nicho.prioridade}: ${encaixe.sistema}`
+        : `Fora da lista de nichos, mas com encaixe: ${encaixe.sistema}`,
   );
 
   /**
-   * ---------- 3. sinais de pequeno negócio (0–20) ----------
+   * ---------- 2. contato utilizável (0–20) ----------
+   *
+   * Celular vale mais que fixo porque é o número que atende no WhatsApp — mas
+   * formato NÃO prova conta, e nada aqui afirma que o lead tem WhatsApp. É
+   * pontuação de probabilidade de alcance, e a prova continua sendo o envio.
+   */
+  add(
+    "contato",
+    "WhatsApp ou celular disponível",
+    tel ? (tel.tipo === "celular" ? 20 : 10) : 0,
+    20,
+    tel
+      ? tel.tipo === "celular"
+        ? "celular — provável WhatsApp, a confirmar no envio"
+        : "telefone fixo — pode ter WhatsApp Business"
+      : "sem telefone",
+  );
+
+  /**
+   * ---------- 3. negócio local independente (0–15) ----------
    *
    * São INDÍCIOS, e o rótulo diz isso. O porte declarado continua
    * `desconhecido` (ver lib/porte.ts) — o que se pontua aqui é comportamento
    * observável de negócio independente, não um dado oficial que ninguém apurou.
    */
   add(
-    "Sinais de negócio pequeno e independente",
-    Math.min(20, classe.sinais.length * 4),
-    20,
+    "porte",
+    "Negócio local independente",
+    classe.rede ? 0 : classe.porteEstimado === "pequeno" ? 15 : classe.sinais.length >= 2 ? 8 : 0,
+    15,
     classe.rede
       ? "Rede identificada — não é negócio independente"
       : (classe.sinais.join(", ") || "nenhum sinal identificável"),
   );
 
   /**
-   * ---------- 4. contato utilizável (0–20) ----------
+   * ---------- 4. operação recorrente (0–15) ----------
    *
-   * Celular vale mais que fixo porque é o número que atende no WhatsApp — mas
-   * formato NÃO prova conta, e nada aqui afirma que o lead tem WhatsApp. É
-   * pontuação de probabilidade de alcance, e a prova continua sendo o envio.
+   * O cliente que volta sozinho é o que faz o sistema se pagar: é a base de
+   * clientes que já existe e que ninguém consegue chamar de volta hoje. Vale
+   * quase tanto quanto o contato porque é o argumento de venda mais forte que
+   * se pode ter antes de falar com o dono.
    */
-  const tel = validarTelefone(telefoneDoLead(lead));
-  const pontosContato = tel
-    ? tel.tipo === "celular"
-      ? 20
-      : 12
-    : lead.instagram || lead.email
-      ? 4
-      : 0;
+  const temRetorno = encaixe.modulos.includes("retorno") || encaixe.modulos.includes("agendamento");
   add(
-    "Contato utilizável",
-    pontosContato,
-    20,
-    tel
-      ? tel.tipo === "celular"
-        ? "celular — provável WhatsApp, a confirmar no envio"
-        : "telefone fixo — pode ter WhatsApp Business"
-      : lead.instagram || lead.email
-        ? "sem telefone; só Instagram ou e-mail"
-        : "nenhum canal de contato",
+    "recorrencia",
+    "Sinais de operação recorrente",
+    nicho?.recorrente ? 15 : temRetorno ? 10 : 0,
+    15,
+    nicho?.recorrente
+      ? `${nicho.rotulo} — o cliente volta sozinho`
+      : temRetorno
+        ? "operação com agenda ou retorno"
+        : "sem recorrência evidente no ramo",
+  );
+
+  // ---------- 5. Instagram ativo (0–10) ----------
+  add(
+    "instagram",
+    "Instagram ativo",
+    lead.instagram ? 10 : 0,
+    10,
+    lead.instagram ? "perfil no Instagram" : "sem Instagram",
+  );
+
+  // ---------- 6. volume de avaliações (0–10) ----------
+  const av = lead.avaliacoes ?? 0;
+  add(
+    "avaliacoes",
+    "Volume de avaliações",
+    av >= 100 ? 10 : av >= 40 ? 7 : av >= 10 ? 4 : av > 0 ? 2 : 0,
+    10,
+    av > 0 ? `${av} avaliações` : "sem avaliações na fonte",
+  );
+
+  // ---------- 7. nota boa (0–10) ----------
+  const nota = lead.nota ?? 0;
+  add(
+    "nota",
+    "Nota boa",
+    nota >= 4.5 ? 10 : nota >= 4 ? 6 : nota >= 3.5 ? 3 : 0,
+    10,
+    nota > 0 ? `nota ${nota}` : "sem nota na fonte",
   );
 
   /**
-   * ---------- 5. ausência de site próprio (0–12) ----------
+   * ---------- 8. processo organizável (0–10) ----------
    *
-   * Instagram, Linktree, iFood e wa.me NÃO são site — quem decide isso é
-   * `lib/places/audit.ts`, e por isso `so-rede-social` e `so-agregador`
-   * pontuam igual a `sem-site`.
-   *
-   * `nao-verificado` vale ZERO. Não é "não tem site", é "ninguém conferiu" —
-   * e no OpenStreetMap a ausência da tag `website` significa exatamente isso.
-   * Dar ponto aqui transformaria falta de dado em qualidade do lead.
-   *
-   * Ter site custa pontos, mas NÃO zera: uma oficina com site e sem controle
-   * de ordem de serviço continua excelente lead, e é o critério 2 que a segura
-   * no topo.
+   * Diferente do critério 1: lá se pergunta se o RAMO tem sistema; aqui,
+   * quantos processos deste lead o sistema encostaria. Uma oficina com seis
+   * módulos (OS, orçamento, histórico, estoque, clientes, financeiro) tem mais
+   * superfície de venda do que um ramo com dois.
    */
-  const lacuna =
-    lead.statusSite === "sem-site" ||
-    lead.statusSite === "so-rede-social" ||
-    lead.statusSite === "so-agregador" ||
-    lead.statusSite === "site-fora-do-ar"
-      ? 12
-      : lead.statusSite === "sem-ssl"
-        ? 9
-        : lead.statusSite === "tem-site"
-          ? 3
-          : 0;
   add(
-    "Sem site próprio",
-    lacuna,
-    12,
-    lead.statusSite === "nao-verificado"
-      ? "Status do site não verificado — sem pontos por falta de dado"
-      : `Status: ${lead.statusSite}`,
+    "processo",
+    "Processo que pode ser organizado",
+    modulos >= 5 ? 10 : modulos >= 3 ? 6 : modulos >= 1 ? 3 : 0,
+    10,
+    encaixe.serve ? `${modulos} módulos: ${encaixe.modulos.slice(0, 4).join(", ")}` : "nenhum",
   );
 
-  // ---------- 6. atividade comercial (0–10) ----------
-  const av = lead.avaliacoes ?? 0;
-  const pontosAvaliacoes = av >= 100 ? 4 : av >= 40 ? 3 : av >= 10 ? 2 : av > 0 ? 1 : 0;
-  const pontosNota = (lead.nota ?? 0) >= 4.5 ? 2 : (lead.nota ?? 0) >= 4 ? 1 : 0;
-  const pontosInsta = lead.instagram ? 2 : 0;
-  const pontosEstrutura = (lead.endereco ? 1 : 0) + (lead.horarios ? 1 : 0);
+  /**
+   * ---------- 9. não possui site (0–5) ----------
+   *
+   * SINAL SECUNDÁRIO, e o peso diz isso: 5 pontos de 120, contra 25 do
+   * potencial de sistema. Foi rebaixado de propósito — "não tem site" virou
+   * argumento sozinho e empurrava para o topo empresa sem telefone e sem
+   * processo nenhum.
+   *
+   * Instagram, Linktree, iFood e wa.me NÃO são site — quem decide isso é
+   * `lib/places/audit.ts`. E `nao-verificado` vale ZERO: não é "não tem site",
+   * é "ninguém conferiu", e no OpenStreetMap a ausência da tag `website`
+   * significa exatamente isso.
+   */
   add(
-    "Atividade comercial",
-    pontosAvaliacoes + pontosNota + pontosInsta + pontosEstrutura,
-    10,
-    [
-      av > 0 ? `${av} avaliações` : null,
-      lead.nota ? `nota ${lead.nota}` : null,
-      lead.instagram ? "Instagram" : null,
-      lead.endereco ? "endereço" : null,
-      lead.horarios ? "horário publicado" : null,
-    ]
-      .filter(Boolean)
-      .join(", ") || "sem sinais de atividade",
+    "sem-site",
+    "Não possui site próprio",
+    SEM_SITE.includes(lead.statusSite) ? 5 : lead.statusSite === "sem-ssl" ? 3 : 0,
+    5,
+    lead.statusSite === "nao-verificado"
+      ? "site não conferido — sem pontos por falta de dado"
+      : `Status: ${lead.statusSite}`,
   );
 
   /**
    * ---------- penalidades ----------
    *
-   * Rede é o único abatimento pesado, e é deliberado: uma franquia não decide
-   * software na loja, então mesmo pontuando bem em ramo e operação ela não
-   * deve aparecer perto do topo. Volume de avaliações NÃO penaliza — negócio
-   * de bairro com 500 avaliações é comum, e é ótimo lead.
+   * Franquia não decide software na loja, e ramo de grande porte não compra
+   * como uma oficina compra. As duas se somam quando é o caso — um banco é as
+   * duas coisas — e é isso que garante que ele nunca chegue perto do topo por
+   * ter nota alta e mil avaliações.
    */
   let penalidade = 0;
-  if (classe.rede) {
-    penalidade += 40;
-    add("Rede, franquia ou corporação", -40, 0, classe.motivosRede.join("; "));
+  const penalizar = (id: string, rotulo: string, pontos: number, base: string) => {
+    penalidade += pontos;
+    add(id, rotulo, -pontos, 0, base);
+  };
+
+  if (classe.rede) penalizar("rede", "Franquia ou rede", 40, classe.motivosRede.join("; "));
+  if (ehCategoriaDeGrandePorte(lead.categoria)) {
+    penalizar("grande-porte", "Ramo de grande porte", 30, `categoria ${lead.categoria}`);
   }
-  if (lead.telefone && !tel) {
-    penalidade += 10;
-    add("Telefone inválido", -10, 0, "número cadastrado não é telefone brasileiro válido");
+  if (!tel) {
+    penalizar(
+      "sem-telefone",
+      "Sem telefone",
+      20,
+      lead.telefone ? "número cadastrado não é telefone brasileiro válido" : "nenhum número",
+    );
   }
 
+  /**
+   * "Inativa" exige EVIDÊNCIA de que fechou — as tags que o mapa usa para
+   * marcar estabelecimento extinto. Deduzir inatividade da falta de dados
+   * puniria a base inteira, porque no OpenStreetMap faltar dado é o normal.
+   */
+  const osm = lead.dadosOsm ?? {};
+  const fechado = Object.keys(osm).some((k) => /^(disused|abandoned|was|removed)/i.test(k));
+  if (fechado) penalizar("inativa", "Empresa aparentemente inativa", 15, "marcada como extinta no mapa");
+
+  if (ctx.possivelDuplicata) {
+    penalizar("duplicata", "Possível duplicata", 15, "outro cadastro na base aparenta ser o mesmo lugar");
+  }
+
+  /**
+   * Nenhum sinal de operação comercial: um nome solto no mapa. Sem endereço,
+   * sem horário, sem avaliação, sem Instagram e sem site não há como afirmar
+   * que existe negócio funcionando ali.
+   */
+  const semOperacao =
+    !lead.endereco && !lead.horarios && av === 0 && !lead.instagram && !lead.website;
+  if (semOperacao) {
+    penalizar("sem-operacao", "Nenhum sinal de operação comercial", 10, "só o nome no mapa");
+  }
+
+  /**
+   * Os positivos somam 120 e o resultado é cortado em 100. É deliberado: um
+   * lead precisa de ~83% dos sinais para cravar 100, então o topo da lista
+   * significa alguma coisa em vez de empatar dez empresas em nota máxima.
+   */
   const bruto = criterios.reduce((s, c) => s + Math.max(0, c.ganhos), 0) - penalidade;
   const score = Math.max(0, Math.min(100, bruto));
 
@@ -319,6 +438,15 @@ export function oportunidade(lead: Lead): Oportunidade {
 
   return { score, faixa, ...rotulos[faixa], criterios };
 }
+
+/**
+ * Os critérios que formam o eixo de CONTATO. Ficam fora do score comercial.
+ *
+ * Casado por `id`, nunca por rótulo: renomear o critério de contato já quebrou
+ * este filtro uma vez em silêncio, e o sintoma foi a fila de enriquecimento
+ * esvaziar sozinha.
+ */
+const EIXO_CONTATO = new Set(["contato", "sem-telefone"]);
 
 // ══════════════════════════════════════════════ contactabilidade
 
@@ -404,7 +532,7 @@ export function contactabilidade(lead: Lead): Contactabilidade {
  * Responde "esta empresa vale a pena?" sem misturar "consigo falar com ela?".
  */
 export function qualidadeDoNegocio(lead: Lead): number {
-  const criterios = oportunidade(lead).criterios.filter((c) => !c.rotulo.startsWith("Contato"));
+  const criterios = oportunidade(lead).criterios.filter((c) => !EIXO_CONTATO.has(c.id));
   // As penalidades (ganhos negativos) continuam contando: uma franquia não
   // vira bom negócio só por sair a coluna de contato da conta.
   const total = criterios.reduce((s, c) => s + c.ganhos, 0);
@@ -463,9 +591,9 @@ export function pontuar(lead: Lead): Pontuacao {
   };
 }
 
-// ══════════════════════════════════════════════ prioridade A / B / C
+// ══════════════════════════════════════════ qualidade A / B / C / D
 
-export type NivelPrioridade = "A" | "B" | "C";
+export type NivelPrioridade = "A" | "B" | "C" | "D";
 
 export type PrioridadeComercial = {
   nivel: NivelPrioridade;
@@ -475,60 +603,156 @@ export type PrioridadeComercial = {
   porque: string;
 };
 
+const ROTULOS: Record<NivelPrioridade, { emoji: string; rotulo: string }> = {
+  A: { emoji: "🔥", rotulo: "Excelente oportunidade" },
+  B: { emoji: "🟡", rotulo: "Boa oportunidade" },
+  C: { emoji: "🔵", rotulo: "Oportunidade baixa" },
+  D: { emoji: "⚪", rotulo: "Não recomendado" },
+};
+
 /**
  * A gaveta em que o lead cai. Complementa o score, não repete: o score ordena
  * DENTRO da gaveta, a gaveta diz se vale a ligação hoje.
  *
- * A régua é de fatos, não de nota. Um lead com score 78 e sem telefone não é
- * "quase A" — é C, porque não dá para falar com ele hoje. Misturar as duas
- * coisas foi o que fazia a tela prometer um lote que a fila recusava.
+ * A régua combina FATO e NOTA, nessa ordem — primeiro os desqualificadores,
+ * que nenhuma pontuação alta derruba, e só depois o score. Um lead com 78 e
+ * sem telefone não é "quase A": não dá para falar com ele hoje.
+ *
+ * REGRA QUE NÃO PODE SER QUEBRADA: "sem site" nunca coloca ninguém em A
+ * sozinho. Chegar em A exige encaixe de sistema, celular e sinais de negócio
+ * local — ausência de site não substitui nenhum dos três.
  */
-export function prioridadeComercial(lead: Lead): PrioridadeComercial {
+export function prioridadeComercial(lead: Lead, ctx: ContextoLead = {}): PrioridadeComercial {
   const classe = classificarPorte(lead);
   const encaixe = avaliarSistema(lead);
   const tel = validarTelefone(telefoneDoLead(lead));
-  const pequeno = !classe.rede && classe.sinais.length >= 2;
+  const score = oportunidade(lead, ctx).score;
+  const nicho = nichoPrioritario(lead.categoria);
 
-  if (classe.rede) {
-    return {
-      nivel: "C",
-      emoji: "🔵",
-      rotulo: "Prioridade C",
-      porque: `Rede ou corporação: ${classe.motivosRede[0]}`,
-    };
+  const gaveta = (nivel: NivelPrioridade, porque: string): PrioridadeComercial => ({
+    nivel,
+    ...ROTULOS[nivel],
+    porque,
+  });
+
+  // ---------- D: não recomendado. Fatos que nenhuma nota reverte ----------
+  /**
+   * Histórico primeiro, antes de qualquer sinal comercial.
+   *
+   * Quem pediu para não ser contatado, quem já disse que não tem interesse e
+   * quem já tem sistema NÃO são "oportunidade baixa" — são porta fechada, e
+   * exibir isso como oportunidade faz alguém gastar uma vaga do teto diário
+   * para ouvir o mesmo não de novo.
+   *
+   * Note que "mensagem-enviada" e "respondeu" NÃO caem aqui: são negócio em
+   * andamento, e continuam sendo boa oportunidade — só não para uma campanha
+   * NOVA, o que é decidido pela elegibilidade, não por esta gaveta.
+   */
+  const ENCERRADOS = ["sem-interesse", "ja-tem-sistema", "opt-out", "contato-invalido"];
+  if (lead.naoContatar) return gaveta("D", "Pediu para não ser contatado");
+  if (ENCERRADOS.includes(lead.etapa)) return gaveta("D", `Já encerrado: ${lead.etapa}`);
+
+  if (classe.rede) return gaveta("D", `Rede ou franquia: ${classe.motivosRede[0]}`);
+  if (ehCategoriaDeGrandePorte(lead.categoria)) {
+    return gaveta("D", `Ramo de grande porte (${lead.categoria}) — não compra como PME`);
+  }
+  if (!tel && !lead.instagram) return gaveta("D", "Sem nenhum canal de contato");
+  if (!encaixe.serve) {
+    return gaveta("D", "Nenhuma solução da ICG Tech se encaixa neste ramo");
   }
 
   /**
-   * A exige as três coisas juntas: é pequeno, dá para falar com ele, e existe
-   * sistema para vender. "Sem site" NÃO entra como requisito — uma oficina com
-   * site e sem ordem de serviço é tão boa quanto uma sem site, e exigir a
-   * ausência de site cortaria metade dos melhores leads (ver §4 do plano).
+   * ---------- A: excelente ----------
+   *
+   * As quatro condições juntas descrevem a venda mais provável que existe:
+   * negócio pequeno, com processo que o sistema organiza, num ramo que a ICG
+   * Tech sabe atender, e com celular para chamar hoje.
    */
-  if (pequeno && tel?.tipo === "celular" && encaixe.serve) {
-    return {
-      nivel: "A",
-      emoji: "🔥",
-      rotulo: "Prioridade A",
-      porque: `Pequeno, celular para WhatsApp e ${encaixe.sistema.toLowerCase()}`,
-    };
+  if (
+    classe.porteEstimado === "pequeno" &&
+    tel?.tipo === "celular" &&
+    nicho?.prioridade !== "C" &&
+    score >= 70
+  ) {
+    return gaveta("A", `${encaixe.sistema} · negócio local com celular · score ${score}`);
   }
 
-  if (pequeno && (tel || lead.instagram)) {
-    return {
-      nivel: "B",
-      emoji: "🟡",
-      rotulo: "Prioridade B",
-      porque: tel
-        ? "Pequeno e com telefone, mas sem encaixe claro de sistema"
-        : "Pequeno, mas só dá para chegar pelo Instagram",
-    };
+  // ---------- B: boa ----------
+  if (tel && score >= 50) {
+    return gaveta(
+      "B",
+      classe.porteEstimado === "pequeno"
+        ? `${encaixe.sistema} · falta volume de sinais para A`
+        : `${encaixe.sistema} · poucos indícios de porte pequeno`,
+    );
   }
+
+  // ---------- C: baixa ----------
+  return gaveta(
+    "C",
+    !tel
+      ? "Só dá para chegar pelo Instagram — precisa enriquecer o contato"
+      : `Encaixe existe, mas os sinais comerciais são fracos (score ${score})`,
+  );
+}
+
+// ══════════════════════════ os três scores, separados ══════════════════
+
+export type Scores = {
+  /** Vale a pena vender para esta empresa? Não olha canal nenhum. 0–100. */
+  comercial: number;
+  /** Quão fácil é chegar nela? Só canal. 0–100. */
+  contatabilidade: number;
+  /** O de ordenar a lista. NUNCA passa do comercial. 0–100. */
+  final: number;
+  /** Os critérios que somaram ou tiraram ponto, para a tela explicar. */
+  motivos: { criterio: string; pontos: number }[];
+};
+
+/**
+ * Os três números que o painel mostra, e por que são três.
+ *
+ * "Score 95" sozinho não diz se a empresa é boa ou se é só fácil de achar. Uma
+ * loja de conveniência com WhatsApp, Instagram e mil avaliações é fácil de
+ * abordar e não tem o que comprar; uma oficina com processo manual inteiro e
+ * só um Instagram é o contrário. Somar os dois num número apaga a diferença
+ * exatamente onde ela importa.
+ *
+ * A REGRA QUE NÃO PODE SER QUEBRADA: `final` nunca é maior que `comercial`.
+ * A contatabilidade só MODULA — chega no máximo a confirmar o potencial
+ * comercial, nunca a criar potencial que não existe. Um lead comercialmente
+ * ruim continua ruim por mais canais que tenha.
+ */
+export function scores(lead: Lead, ctx: ContextoLead = {}): Scores {
+  const o = oportunidade(lead, ctx);
+
+  /**
+   * O comercial reaproveita os critérios do score de oportunidade menos o eixo
+   * de contato, e é reescalado de 0–80 para 0–100 — senão um lead comercial
+   * perfeito nunca passaria de 80 e a régua ficaria comprimida.
+   */
+  const bruto = o.criterios
+    .filter((c) => !EIXO_CONTATO.has(c.id))
+    .reduce((s, c) => s + c.ganhos, 0);
+  const comercial = Math.max(0, Math.min(100, Math.round((bruto / 80) * 100)));
+
+  const contatabilidade = contactabilidade(lead).score;
+
+  /**
+   * O piso de 0,6 existe para a contatabilidade pesar sem dominar: um negócio
+   * excelente sem canal nenhum ainda pontua 60% do seu valor comercial (ele
+   * vale enriquecimento), e um com todos os canais chega a 100% dele — nunca
+   * mais que isso.
+   */
+  const final = Math.round(comercial * (0.6 + 0.4 * (contatabilidade / 100)));
 
   return {
-    nivel: "C",
-    emoji: "🔵",
-    rotulo: "Prioridade C",
-    porque: !tel && !lead.instagram ? "Sem canal de contato" : "Poucos sinais de negócio local",
+    comercial,
+    contatabilidade,
+    final: Math.max(0, Math.min(comercial, final)),
+    motivos: o.criterios
+      .filter((c) => c.ganhos !== 0)
+      .map((c) => ({ criterio: c.rotulo, pontos: c.ganhos })),
   };
 }
 

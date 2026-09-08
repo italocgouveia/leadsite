@@ -116,8 +116,14 @@ async function main() {
   const semZap = { ...amostra, whatsapp: null, telefone: null };
   const pSem = pontuar(semZap);
   const perda = pontuar(amostra).total - pSem.total;
-  ok("sem WhatsApp o score cai, mas no maximo os 20 pontos de contato",
-     perda > 0 && perda <= 24,
+  /**
+   * A queda passou de 20 para 40 pontos: a regua de qualificacao soma o
+   * credito de contato (20) com uma penalidade explicita de "sem telefone"
+   * (-20). E deliberado — numa lista de prospeccao, nao adianta ser bom
+   * negocio se nao ha como falar com ele hoje.
+   */
+  ok("sem WhatsApp o score cai 40: 20 de credito + 20 de penalidade",
+     perda > 0 && perda <= 40,
      `perdeu ${perda} pontos (${pSem.total} vs ${pontuar(amostra).total})`);
   ok("e o lead continua visivel, nao zerado",
      pSem.total > 0 && qualidadeDoNegocio(semZap) >= 50,

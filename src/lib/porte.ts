@@ -26,6 +26,21 @@ import { nichoPrioritario } from "@/lib/nichos-locais";
 
 export type Porte = "mei" | "micro" | "pequena" | "media" | "grande" | "desconhecido";
 
+/**
+ * O porte SUPOSTO a partir de indícios. Nunca vira `porte`.
+ *
+ * A diferença entre os dois campos é a coisa mais importante deste arquivo:
+ *
+ *   `porte`          o que se SABE. Só recebe valor com prova, e por isso é
+ *                    `desconhecido` para quase toda a base.
+ *   `porteEstimado`  o que se SUPÕE, a partir de sinais observáveis. Serve
+ *                    para ordenar a fila e nada mais.
+ *
+ * A tela mostra os dois com rótulos diferentes ("porte não informado" x
+ * "parece pequeno"), justamente para ninguém ler a estimativa como cadastro.
+ */
+export type PorteEstimado = "pequeno" | "medio" | "grande" | "desconhecido";
+
 export type Classificacao = {
   porte: Porte;
   /** De onde veio o porte. `nenhuma` sempre acompanha `desconhecido`. */
@@ -36,6 +51,10 @@ export type Classificacao = {
   motivosRede: string[];
   /** Indícios de negócio pequeno. HIPÓTESE, nunca afirmação de porte. */
   sinais: string[];
+  /** Palpite de tamanho a partir dos indícios. Nunca é dado oficial. */
+  porteEstimado: PorteEstimado;
+  /** As evidências que sustentam o palpite, para a tela poder mostrar. */
+  evidenciasPorte: string[];
 };
 
 /**
@@ -110,7 +129,19 @@ function pareceCorporacao(texto: string): boolean {
  * Não são prova de porte sozinhas, mas somadas a nome de rede fecham o caso.
  */
 const CATEGORIA_GRANDE =
-  /\b(bank|supermarket|hypermarket|mall|department_store|hospital|university|college|car(?!_repair|_parts|_wash)|fuel|cinema|stadium|wholesale)\b/i;
+  /\b(bank|supermarket|hypermarket|mall|department_store|hospital|university|college|car(?!_repair|_parts|_wash)|fuel|cinema|stadium|wholesale|government|townhall|courthouse|prison|police)\b/i;
+
+/**
+ * O ramo em si já é de grande porte?
+ *
+ * Separado de `ehRede` porque responde outra pergunta: não é "pertence a uma
+ * rede", é "este tipo de negócio não existe em versão de bairro". Banco,
+ * hospital, universidade e órgão público não compram sistema do jeito que uma
+ * oficina compra — a decisão passa por licitação ou por matriz.
+ */
+export function ehCategoriaDeGrandePorte(categoria?: string | null): boolean {
+  return CATEGORIA_GRANDE.test(categoria ?? "");
+}
 
 function semAcento(t: string): string {
   return t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -225,11 +256,49 @@ export function classificarPorte(lead: Lead): Classificacao {
   const sinais = sinaisDePequeno(lead);
 
   if (rede) {
-    return { porte: "grande", fonte: "rede-identificada", rede: true, motivosRede: motivos, sinais };
+    return {
+      porte: "grande",
+      fonte: "rede-identificada",
+      rede: true,
+      motivosRede: motivos,
+      sinais,
+      porteEstimado: "grande",
+      evidenciasPorte: motivos,
+    };
   }
 
-  return { porte: "desconhecido", fonte: "nenhuma", rede: false, motivosRede: [], sinais };
+  /**
+   * A estimativa é uma contagem de indícios, não uma inferência sofisticada —
+   * e é assim de propósito, porque cada indício é conferível na tela.
+   *
+   * Três ou mais sinais é "pequeno": telefone celular, endereço de rua, nome de
+   * profissional e ramo de serviço local, juntos, descrevem um negócio que
+   * atende do próprio balcão. Um ou dois sinais não sustentam palpite nenhum e
+   * ficam em `desconhecido`, que continua sendo uma resposta legítima.
+   *
+   * `medio` nunca é atribuído por indício: não existe sinal gratuito que
+   * separe médio de pequeno, e inventar essa fronteira daria à tela uma
+   * precisão que o dado não tem.
+   */
+  const porteEstimado: PorteEstimado = sinais.length >= 3 ? "pequeno" : "desconhecido";
+
+  return {
+    porte: "desconhecido",
+    fonte: "nenhuma",
+    rede: false,
+    motivosRede: [],
+    sinais,
+    porteEstimado,
+    evidenciasPorte: sinais,
+  };
 }
+
+export const ROTULO_PORTE_ESTIMADO: Record<PorteEstimado, string> = {
+  pequeno: "Parece pequeno",
+  medio: "Parece médio",
+  grande: "Rede ou grande porte",
+  desconhecido: "Tamanho indefinido",
+};
 
 export const ROTULO_PORTE: Record<Porte, string> = {
   mei: "MEI",

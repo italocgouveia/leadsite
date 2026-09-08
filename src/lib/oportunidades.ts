@@ -1,10 +1,46 @@
-import { db, leads, mensagens, type Lead } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { db, leads, mensagens, conversas, type Lead } from "@/lib/db";
 import { avaliarContato, lerConfig } from "@/lib/fila";
-import { pontuar, prioridadeComercial, type NivelPrioridade } from "@/lib/pontuacao";
-import { classificarPorte, pareceNegocioLocal, ROTULO_PORTE, type Porte } from "@/lib/porte";
+import {
+  pontuar,
+  prioridadeComercial,
+  scores,
+  type NivelPrioridade,
+  type ContextoLead,
+} from "@/lib/pontuacao";
+import {
+  classificarPorte,
+  pareceNegocioLocal,
+  ROTULO_PORTE,
+  ROTULO_PORTE_ESTIMADO,
+  type Porte,
+  type PorteEstimado,
+} from "@/lib/porte";
+import { deduplicar } from "@/lib/dedup";
+import {
+  canalDoLead,
+  instagramDoLead,
+  motivoDeDescarte,
+  ehAcionavel,
+  ROTULO_CANAL,
+  ROTULO_DESCARTE,
+  type Canal,
+  type Descarte,
+} from "@/lib/canais";
+import {
+  precisaEnriquecer,
+  motivoDaGaveta,
+  estadoDoContato,
+  ROTULO_CONTATO,
+  ROTULO_MOTIVO,
+  type MotivoGaveta,
+  type EstadoContato,
+} from "@/lib/enriquecimento";
+import { validarTelefone, telefoneDoLead } from "@/lib/telefone";
 import { SEM_SITE } from "@/lib/places/audit";
 import { avaliarSistema } from "@/lib/sistemas";
 import { categoriaSingular } from "@/lib/categoria-nome";
+import { nichoPrioritario } from "@/lib/nichos-locais";
 import type { Etapa } from "@/lib/db/schema";
 
 /**
@@ -61,8 +97,24 @@ export type FiltroOportunidade = {
    * `nao-verificado` NÃO entra — ausência de tag no mapa não é prova.
    */
   semSiteConfirmado?: boolean;
-  /** Gaveta comercial: 🔥 A, 🟡 B, 🔵 C. */
-  nivel?: "A" | "B" | "C";
+  /** Gaveta comercial: 🔥 A, 🟡 B, 🔵 C, ⚪ D. */
+  nivel?: "A" | "B" | "C" | "D";
+  /** ✅ Só quem passa em TODAS as travas de "pronto para prospecção". */
+  prontosParaProspeccao?: boolean;
+  /** 🛠 Encaixe forte: o sistema encosta em 4 ou mais processos. */
+  potencialForte?: boolean;
+  /** 🚫 Nunca recebeu mensagem nossa. */
+  naoContatado?: boolean;
+
+  /**
+   * A FILA comercial. É o filtro principal da tela nova.
+   *
+   *   whatsapp   pode entrar em campanha automática
+   *   instagram  abordagem manual (com ou sem WhatsApp)
+   *   ambos      as melhores oportunidades
+   *   acionaveis qualquer canal + o que vender
+   */
+  fila?: "whatsapp" | "instagram" | "ambos" | "acionaveis";
 };
 
 export type LeadOportunidade = {
@@ -88,13 +140,18 @@ export type LeadOportunidade = {
   dor: string | null;
 
   // ───────── prospecção local ─────────
-  /** Gaveta comercial: A, B ou C. */
+  /** Gaveta comercial: A, B, C ou D. */
   nivel: NivelPrioridade;
   nivelEmoji: string;
   nivelPorque: string;
   /** Porte OFICIAL. `desconhecido` quase sempre — e isso é a resposta certa. */
   porte: Porte;
   porteRotulo: string;
+  /** Palpite de tamanho por indício. NUNCA confundir com `porte`. */
+  porteEstimado: PorteEstimado;
+  porteEstimadoRotulo: string;
+  /** As evidências que sustentam o palpite de porte. */
+  evidenciasPorte: string[];
   /** Indícios de negócio pequeno. Hipótese, não afirmação de porte. */
   sinaisPequeno: string[];
   /** É rede/franquia/corporação, e por quê. */
@@ -104,6 +161,44 @@ export type LeadOportunidade = {
   semSiteConfirmado: boolean;
   /** Site não conferido — nem "tem" nem "não tem". */
   siteNaoVerificado: boolean;
+  /** Prioridade comercial do RAMO (A/B/C), quando ele está na lista. */
+  prioridadeNicho: "A" | "B" | "C" | null;
+  /** Passa em todas as travas para entrar numa campanha hoje. */
+  prontoParaProspeccao: boolean;
+  /** Outro cadastro da base aparenta ser o mesmo lugar. */
+  possivelDuplicata: boolean;
+  /**
+   * Os critérios que somaram ponto, com o valor — é a resposta a "por que
+   * este lead está no topo?" sem ninguém precisar reler o código do score.
+   */
+  porQue: { criterio: string; pontos: number; base: string }[];
+  /** 📞 telefone · 📱 possível celular · 🟢 WhatsApp confirmado · 🔎 sem contato */
+  contato: EstadoContato;
+  contatoRotulo: string;
+  /** Entra na fila de enriquecimento? E com que prioridade? */
+  precisaEnriquecer: boolean;
+  enriquecimentoPrioridade: "alta" | "media" | "baixa" | null;
+  enriquecimentoMotivo: string;
+  /** A gaveta que este lead alcançaria SE tivesse celular. */
+  qualidadePotencial: NivelPrioridade;
+  /** De onde veio o telefone, quando veio de enriquecimento. */
+  telefoneOrigem: string | null;
+
+  // ───────── canais ─────────
+  /** 📱 whatsapp · 📸 instagram · 🔥 ambos · ❌ sem-canal */
+  canal: Canal;
+  canalRotulo: string;
+  /** O @ validado, quando existe perfil utilizável. */
+  instagramUsername: string | null;
+  instagramUrl: string | null;
+  /** Status da abordagem MANUAL. Independente do funil de WhatsApp. */
+  instagramStatus: string | null;
+  /** Por que está fora da visão comercial, ou null se está dentro. */
+  descarte: Descarte;
+  /** Os três scores separados — ver `scores` em lib/pontuacao. */
+  scoreComercial: number;
+  scoreContatabilidade: number;
+  scoreFinal: number;
 };
 
 export type SegmentoResumo = {
@@ -138,15 +233,83 @@ export type ResultadoOportunidades = {
     leads: number;
     comWhatsapp: number;
     elegiveis: number;
+    /** Tem telefone válido — dá para tentar falar. */
+    contataveis: number;
+    /** Contatável + encaixe de sistema + não é rede. */
+    qualificados: number;
+    /** Qualificado + passa na elegibilidade da fila + score mínimo. */
+    prontosParaProspeccao: number;
     pequenos: number;
     comPotencialSistema: number;
+    potencialForte: number;
     semSiteConfirmado: number;
     siteNaoVerificado: number;
+    possiveisDuplicatas: number;
+    comInstagram: number;
+    naoContatados: number;
     prioridadeA: number;
     prioridadeB: number;
     prioridadeC: number;
+    prioridadeD: number;
+  };
+  /**
+   * POR QUE os leads caíram em D.
+   *
+   * "D — 840" sozinho parece base ruim. Aberto em causas, vira mapa de
+   * trabalho: se a maior fatia é "sem telefone", o problema tem conserto (a
+   * fila de enriquecimento); se fosse "rede", não teria.
+   */
+  /**
+   * O PAINEL POR CANAL — a métrica principal, no lugar de "total de leads".
+   *
+   * Medido antes desta mudança: a tela anunciava 1.057 leads e 127 eram
+   * abordáveis. Um número que erra por 8x não é indicador, é ruído; estes
+   * contam o que dá para fazer hoje.
+   */
+  canais: {
+    /** Tem canal real E existe o que vender. A métrica que importa. */
+    acionaveis: number;
+    /** 📱 Celular plausível — pode entrar em campanha. */
+    whatsapp: number;
+    /** 📸 Instagram utilizável — abordagem manual. */
+    instagram: number;
+    /** 🔥 Os dois. Melhores oportunidades. */
+    ambos: number;
+    /** ❌ Sem canal nenhum: fora da visão comercial. */
+    semCanal: number;
+    /** Total bruto da base — informação secundária, de propósito. */
+    total: number;
+    pequenosLocais: number;
+    comSistemaAplicavel: number;
+    /** Por que os leads ficaram fora da visão comercial. */
+    descartes: { motivo: string; rotulo: string; quantidade: number }[];
+  };
+  motivosD: { motivo: string; rotulo: string; quantidade: number }[];
+  /** O funil do enriquecimento — quem vale a pena caçar o telefone. */
+  enriquecimento: {
+    semTelefone: number;
+    /** Passam em `precisaEnriquecer`: qualidade potencial A ou B. */
+    precisamEnriquecer: number;
+    prioridadeAlta: number;
+    prioridadeMedia: number;
+    prioridadeBaixa: number;
+    /** Já ganharam telefone por enriquecimento. */
+    encontrados: number;
+    /** Com potencial A/B, mas sem telefone — o alvo. */
+    potencialAsemTelefone: number;
+    potencialBsemTelefone: number;
   };
 };
+
+/**
+ * Nota mínima para entrar em "pronto para prospecção".
+ *
+ * 45 de 100 numa régua cujos positivos somam 120: é o piso que um negócio
+ * pequeno com celular e encaixe de sistema ultrapassa sem esforço, e que um
+ * cadastro solto no mapa não alcança. Existe para a fila não gastar as vagas
+ * do teto diário com quem só tem nome e categoria.
+ */
+export const SCORE_MINIMO_PROSPECCAO = 45;
 
 const LIMITE_LEADS = 200;
 
@@ -155,7 +318,19 @@ function semSiteConfirmado(lead: Lead): boolean {
   return SEM_SITE.includes(lead.statusSite);
 }
 
-function passaNosFiltros(lead: Lead, f: FiltroOportunidade): boolean {
+/**
+ * O que o filtro precisa saber e o lead sozinho não conta: se ele passa em
+ * todas as travas de prospecção, se já foi abordado, e se é possível
+ * duplicata. Tudo isso depende da base e do histórico, calculados uma vez em
+ * `oportunidades()` e passados aqui.
+ */
+type ContextoFiltro = {
+  pronto: (l: Lead) => boolean;
+  jaContatado: (l: Lead) => boolean;
+  ctx: (l: Lead) => ContextoLead;
+};
+
+function passaNosFiltros(lead: Lead, f: FiltroOportunidade, ajuda: ContextoFiltro): boolean {
   if (f.segmento && categoriaSingular(lead.categoria) !== f.segmento) return false;
   if (f.somenteWhatsapp !== false && !lead.whatsapp) return false;
   if (f.comInstagram && !lead.instagram) return false;
@@ -167,7 +342,25 @@ function passaNosFiltros(lead: Lead, f: FiltroOportunidade): boolean {
   if (f.somentePequenos && !pareceNegocioLocal(lead)) return false;
   if (f.comPotencialSistema && !avaliarSistema(lead).serve) return false;
   if (f.semSiteConfirmado && !semSiteConfirmado(lead)) return false;
-  if (f.nivel && prioridadeComercial(lead).nivel !== f.nivel) return false;
+  if (f.nivel && prioridadeComercial(lead, ajuda.ctx(lead)).nivel !== f.nivel) return false;
+
+  if (f.fila) {
+    const c = canalDoLead(lead);
+    if (f.fila === "acionaveis" && !ehAcionavel(lead)) return false;
+    if (f.fila === "ambos" && c !== "ambos") return false;
+    // A fila do Instagram aceita quem também tem WhatsApp: a abordagem manual
+    // é adicional, não exclusiva.
+    if (f.fila === "instagram" && c !== "instagram" && c !== "ambos") return false;
+    if (f.fila === "whatsapp" && c !== "whatsapp" && c !== "ambos") return false;
+    // Nenhuma fila comercial aceita lead que não tem o que vender.
+    if (f.fila !== "acionaveis" && motivoDeDescarte(lead)) return false;
+  }
+  if (f.prontosParaProspeccao && !ajuda.pronto(lead)) return false;
+  if (f.naoContatado && ajuda.jaContatado(lead)) return false;
+  if (f.potencialForte) {
+    const e = avaliarSistema(lead);
+    if (!e.serve || e.modulos.length < 4) return false;
+  }
   return true;
 }
 
@@ -197,6 +390,23 @@ export async function oportunidades(
       .from(mensagens),
   ]);
 
+  /**
+   * Quem é possível duplicata de quem — calculado UMA vez para a base inteira.
+   *
+   * `oportunidade()` é função pura por lead e não tem como saber disso: exige
+   * comparar cada cadastro com todos os outros. O painel tem a base na mão,
+   * então calcula aqui e injeta o resultado no score (penalidade de -15).
+   *
+   * O primeiro de cada grupo NÃO é marcado: se dois cadastros são o mesmo
+   * lugar, um deles é o bom. Penalizar os dois esconderia o lead de verdade.
+   */
+  const duplicados = new Set(
+    deduplicar(
+      [...base].sort((a, b) => Number(Boolean(b.telefone)) - Number(Boolean(a.telefone))),
+    ).duplicados.map((d) => (d.item as Lead).id),
+  );
+  const ctxDe = (lead: Lead): ContextoLead => ({ possivelDuplicata: duplicados.has(lead.id) });
+
   const porLead = new Map<string, { id: string; status: string; enviadaEm: Date | null }[]>();
   for (const m of historico) {
     const atual = porLead.get(m.leadId);
@@ -222,18 +432,52 @@ export async function oportunidades(
   };
 
   // ---------- números do topo: a base inteira, sem filtro nenhum ----------
-  const niveis = base.map((l) => prioridadeComercial(l).nivel);
+  const niveis = base.map((l) => prioridadeComercial(l, ctxDe(l)).nivel);
+
+  /**
+   * OS QUATRO NÚMEROS, e por que eles NÃO podem virar um só.
+   *
+   *   encontrados  quantos existem na base
+   *   contataveis  têm telefone válido — dá para tentar falar
+   *   qualificados + têm encaixe de sistema e não são rede: vale a conversa
+   *   prontos      + passam na elegibilidade real da fila (opt-out, recontato,
+   *                mensagem viva, duplicata) e batem o score mínimo
+   *
+   * Cada um é um subconjunto do anterior, e a distância entre eles é a
+   * informação: "1.057 encontrados / 54 prontos" diz onde está o gargalo. Um
+   * número só esconderia isso e faria a tela prometer um lote que a fila
+   * recusa — que foi o defeito original deste painel.
+   */
+  const contatavel = (l: Lead) => Boolean(validarTelefone(telefoneDoLead(l)));
+  const qualificado = (l: Lead) =>
+    contatavel(l) && avaliarSistema(l).serve && !classificarPorte(l).rede;
+  const pronto = (l: Lead) =>
+    qualificado(l) && elegivel(l).pode && pontuar(l).total >= SCORE_MINIMO_PROSPECCAO;
+
   const totais = {
     leads: base.length,
     comWhatsapp: base.filter((l) => l.whatsapp).length,
     elegiveis: base.filter((l) => elegivel(l).pode).length,
+    contataveis: base.filter(contatavel).length,
+    qualificados: base.filter(qualificado).length,
+    prontosParaProspeccao: base.filter(pronto).length,
     pequenos: base.filter(pareceNegocioLocal).length,
     comPotencialSistema: base.filter((l) => avaliarSistema(l).serve).length,
+    /** Encaixe forte: o sistema encosta em 4+ processos do negócio. */
+    potencialForte: base.filter((l) => {
+      const e = avaliarSistema(l);
+      return e.serve && e.modulos.length >= 4;
+    }).length,
     semSiteConfirmado: base.filter(semSiteConfirmado).length,
     siteNaoVerificado: base.filter((l) => l.statusSite === "nao-verificado").length,
+    possiveisDuplicatas: duplicados.size,
+    comInstagram: base.filter((l) => l.instagram).length,
+    /** Nunca recebeu mensagem nossa — nem rascunho, nem enviada. */
+    naoContatados: base.filter((l) => (porLead.get(l.id)?.length ?? 0) === 0).length,
     prioridadeA: niveis.filter((n) => n === "A").length,
     prioridadeB: niveis.filter((n) => n === "B").length,
     prioridadeC: niveis.filter((n) => n === "C").length,
+    prioridadeD: niveis.filter((n) => n === "D").length,
   };
 
   // ---------- cards de nicho: contagem real por segmento ----------
@@ -261,7 +505,104 @@ export async function oportunidades(
     .sort((a, b) => b.elegiveis - a.elegiveis || b.total - a.total);
 
   // ---------- o filtro em si ----------
-  const doFiltro = base.filter((l) => passaNosFiltros(l, filtro));
+  /**
+   * A abertura do D em causas, na MESMA ordem que a gaveta usou para decidir.
+   * Ver `motivoDaGaveta` — um diagnóstico fora de ordem apontaria a causa
+   * errada e mandaria consertar o que não é o problema.
+   */
+  const motivosD = () => {
+    const conta = new Map<string, number>();
+    for (const l of base) {
+      if (prioridadeComercial(l, ctxDe(l)).nivel !== "D") continue;
+      const m = motivoDaGaveta(l, ctxDe(l));
+      conta.set(m, (conta.get(m) ?? 0) + 1);
+    }
+    return [...conta.entries()]
+      .map(([motivo, quantidade]) => ({
+        motivo,
+        rotulo: ROTULO_MOTIVO[motivo as MotivoGaveta],
+        quantidade,
+      }))
+      .sort((a, b) => b.quantidade - a.quantidade);
+  };
+
+  /**
+   * O painel por canal. Conta a base INTEIRA, não o filtro — é o retrato de
+   * com quem dá para falar hoje, e ele não muda quando a pessoa mexe num
+   * filtro de nicho.
+   */
+  const resumoCanais = () => {
+    const porCanal = base.map(canalDoLead);
+    const descartes = new Map<string, number>();
+    for (const l of base) {
+      const d = motivoDeDescarte(l);
+      if (d) descartes.set(d, (descartes.get(d) ?? 0) + 1);
+    }
+    return {
+      acionaveis: base.filter(ehAcionavel).length,
+      whatsapp: porCanal.filter((c) => c === "whatsapp" || c === "ambos").length,
+      instagram: porCanal.filter((c) => c === "instagram" || c === "ambos").length,
+      ambos: porCanal.filter((c) => c === "ambos").length,
+      semCanal: porCanal.filter((c) => c === "sem-canal").length,
+      total: base.length,
+      pequenosLocais: base.filter((l) => ehAcionavel(l) && pareceNegocioLocal(l)).length,
+      comSistemaAplicavel: base.filter((l) => ehAcionavel(l) && avaliarSistema(l).serve).length,
+      descartes: [...descartes.entries()]
+        .map(([motivo, quantidade]) => ({
+          motivo,
+          rotulo: ROTULO_DESCARTE[motivo as NonNullable<Descarte>],
+          quantidade,
+        }))
+        .sort((a, b) => b.quantidade - a.quantidade),
+    };
+  };
+
+  const resumoEnriquecimento = () => {
+    const analises = base.map((l) => ({ l, e: precisaEnriquecer(l) }));
+    const semTel = analises.filter(({ l }) => !validarTelefone(telefoneDoLead(l)));
+    const naFila = analises.filter(({ e }) => e.precisa);
+    return {
+      semTelefone: semTel.length,
+      precisamEnriquecer: naFila.length,
+      prioridadeAlta: naFila.filter(({ e }) => e.prioridade === "alta").length,
+      prioridadeMedia: naFila.filter(({ e }) => e.prioridade === "media").length,
+      prioridadeBaixa: naFila.filter(({ e }) => e.prioridade === "baixa").length,
+      encontrados: base.filter((l) => l.telefoneOrigem).length,
+      potencialAsemTelefone: semTel.filter(({ e }) => e.qualidadePotencial === "A").length,
+      potencialBsemTelefone: semTel.filter(({ e }) => e.qualidadePotencial === "B").length,
+    };
+  };
+
+  /**
+   * WhatsApp CONFIRMADO — só com prova, nunca por formato do número.
+   *
+   * A prova é uma destas duas: uma mensagem que realmente saiu (`enviadaEm`
+   * preenchido — a Bridge recusa número sem conta, então o envio concluído é
+   * evidência), ou uma resposta que chegou do lead.
+   *
+   * Celular NÃO entra. "Parece celular" é `possivel-celular` na tela, um
+   * estado diferente e propositalmente mais fraco: prometer WhatsApp por causa
+   * do nono dígito é a forma mais fácil de a tela mentir.
+   */
+  const confirmados = new Set<string>();
+  for (const [leadId, msgs] of porLead) {
+    if (msgs.some((m) => m.enviadaEm)) confirmados.add(leadId);
+  }
+  for (const c of await db
+    .select({ leadId: conversas.leadId })
+    .from(conversas)
+    .where(eq(conversas.direcao, "recebida"))
+    .groupBy(conversas.leadId)) {
+    confirmados.add(c.leadId);
+  }
+
+  const ajuda: ContextoFiltro = {
+    pronto,
+    // "Já contatado" = tem QUALQUER mensagem no histórico, enviada ou não.
+    jaContatado: (l) => (porLead.get(l.id)?.length ?? 0) > 0,
+    ctx: ctxDe,
+  };
+  const doFiltro = base.filter((l) => passaNosFiltros(l, filtro, ajuda));
   const contagemRecusa = new Map<string, number>();
   const aptos: Lead[] = [];
 
@@ -283,9 +624,13 @@ export async function oportunidades(
    * painel quer trabalhar a lista de cima para baixo, e é a gaveta que garante
    * que os primeiros são realmente trabalháveis.
    */
-  const ORDEM: Record<NivelPrioridade, number> = { A: 0, B: 1, C: 2 };
+  const ORDEM: Record<NivelPrioridade, number> = { A: 0, B: 1, C: 2, D: 3 };
   const comScore = aptos
-    .map((lead) => ({ lead, p: pontuar(lead), nivel: prioridadeComercial(lead) }))
+    .map((lead) => ({
+      lead,
+      p: pontuar(lead),
+      nivel: prioridadeComercial(lead, ctxDe(lead)),
+    }))
     .filter(({ p }) => {
       if (filtro.prioridade === "alta") return p.total >= 70;
       if (filtro.prioridade === "media") return p.total >= 45;
@@ -306,9 +651,14 @@ export async function oportunidades(
       .sort((a, b) => b.quantidade - a.quantidade),
     segmentos,
     totais,
+    canais: resumoCanais(),
+    motivosD: motivosD(),
+    enriquecimento: resumoEnriquecimento(),
     leads: escolhidos.map(({ lead, p, nivel }) => {
       const encaixe = avaliarSistema(lead);
       const classe = classificarPorte(lead);
+      const enriq = precisaEnriquecer(lead);
+      const sc = scores(lead, ctxDe(lead));
       return {
         id: lead.id,
         nome: lead.nome,
@@ -334,11 +684,37 @@ export async function oportunidades(
         nivelPorque: nivel.porque,
         porte: classe.porte,
         porteRotulo: ROTULO_PORTE[classe.porte],
+        porteEstimado: classe.porteEstimado,
+        porteEstimadoRotulo: ROTULO_PORTE_ESTIMADO[classe.porteEstimado],
+        evidenciasPorte: classe.evidenciasPorte,
         sinaisPequeno: classe.sinais,
         rede: classe.rede,
         motivosRede: classe.motivosRede,
         semSiteConfirmado: semSiteConfirmado(lead),
         siteNaoVerificado: lead.statusSite === "nao-verificado",
+        prioridadeNicho: nichoPrioritario(lead.categoria)?.prioridade ?? null,
+        prontoParaProspeccao: pronto(lead),
+        possivelDuplicata: duplicados.has(lead.id),
+        // Só o que GANHOU ponto, e o quanto. Critério zerado é ruído na tela.
+        porQue: p.oportunidade.criterios
+          .filter((c) => c.ganhos !== 0)
+          .map((c) => ({ criterio: c.rotulo, pontos: c.ganhos, base: c.base })),
+        contato: estadoDoContato(lead, confirmados.has(lead.id)),
+        contatoRotulo: ROTULO_CONTATO[estadoDoContato(lead, confirmados.has(lead.id))],
+        precisaEnriquecer: enriq.precisa,
+        enriquecimentoPrioridade: enriq.prioridade,
+        enriquecimentoMotivo: enriq.motivo,
+        qualidadePotencial: enriq.qualidadePotencial,
+        telefoneOrigem: lead.telefoneOrigem,
+        canal: canalDoLead(lead),
+        canalRotulo: ROTULO_CANAL[canalDoLead(lead)],
+        instagramUsername: instagramDoLead(lead)?.username ?? null,
+        instagramUrl: instagramDoLead(lead)?.url ?? null,
+        instagramStatus: lead.instagramStatus ?? null,
+        descarte: motivoDeDescarte(lead),
+        scoreComercial: sc.comercial,
+        scoreContatabilidade: sc.contatabilidade,
+        scoreFinal: sc.final,
       };
     }),
   };

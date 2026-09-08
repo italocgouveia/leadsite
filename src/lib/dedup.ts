@@ -1,5 +1,6 @@
 import { validarTelefone, normalizarTelefoneParaComparacao } from "@/lib/telefone";
 import { ehPlataformaCompartilhada } from "@/lib/places/audit";
+import { instagramDoLead } from "@/lib/canais";
 
 /**
  * O mesmo estabelecimento cadastrado duas vezes.
@@ -85,6 +86,11 @@ export type Cadastro = {
   website?: string | null;
   endereco?: string | null;
   cidade?: string | null;
+  /** O @ do Instagram é identidade forte: duas empresas não dividem um perfil. */
+  instagram?: string | null;
+  /** Coordenadas: mesmo ponto no mapa + mesmo nome = mesma ficha em duplicata. */
+  lat?: number | null;
+  lng?: number | null;
 };
 
 /**
@@ -133,6 +139,33 @@ export function mesmoEstabelecimento(a: Cadastro, b: Cadastro): Veredito {
 
   const domA = dominioCanonico(a.website);
   if (domA && domA === dominioCanonico(b.website)) return { igual: true, motivo: "mesmo domínio" };
+
+  /**
+   * Mesmo @ do Instagram é a mesma empresa. Passa por `instagramDoLead`, que
+   * extrai e valida o username — sem isso, dois links de POST diferentes do
+   * mesmo perfil não casariam, e duas URLs escritas de formas diferentes
+   * (`@x`, `instagram.com/x/`, `www.instagram.com/x`) tampouco.
+   */
+  const igA = instagramDoLead({ instagram: a.instagram ?? null })?.username;
+  if (igA && igA === instagramDoLead({ instagram: b.instagram ?? null })?.username) {
+    return { igual: true, motivo: "mesmo perfil de Instagram" };
+  }
+
+  /**
+   * Mesmo PONTO no mapa e mesmo nome: é a ficha duplicada do OpenStreetMap
+   * (o lugar mapeado como nó e como área). Exige as duas coisas — coordenada
+   * sozinha juntaria lojas vizinhas de um shopping, e nome sozinho juntaria
+   * as duas "Barbearia do Zé" da cidade.
+   *
+   * 11 metros (0,0001°) é a tolerância: o suficiente para o centroide de uma
+   * área não bater exatamente no nó, e pouco para alcançar o vizinho.
+   */
+  const nomeIgual = nomeCanonico(a.nome) && nomeCanonico(a.nome) === nomeCanonico(b.nome);
+  if (nomeIgual && a.lat != null && a.lng != null && b.lat != null && b.lng != null) {
+    if (Math.abs(a.lat - b.lat) < 0.0001 && Math.abs(a.lng - b.lng) < 0.0001) {
+      return { igual: true, motivo: "mesmo nome no mesmo ponto do mapa" };
+    }
+  }
 
   /**
    * Nome igual NÃO basta. Exigir o lugar junto é o que separa "duas fichas da

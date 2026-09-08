@@ -96,9 +96,14 @@ async function main() {
     sPequena - sGrande >= 30,
     `diferença de ${sPequena - sGrande} pontos`,
   );
+  /**
+   * Passou de C para D quando a gaveta ganhou o nivel "nao recomendado".
+   * Rede identificada nao e "prioridade baixa", e desqualificacao: a loja nao
+   * decide software, entao nao ha o que trabalhar ali.
+   */
   ok(
-    "1c. a rede cai na gaveta C",
-    prioridadeComercial(REDE_GRANDE).nivel === "C",
+    "1c. a rede cai na gaveta D (nao recomendado)",
+    prioridadeComercial(REDE_GRANDE).nivel === "D",
     prioridadeComercial(REDE_GRANDE).porque,
   );
   ok(
@@ -289,9 +294,8 @@ async function main() {
    * probabilidade de alcance e diz isso na justificativa — a conta só é
    * provada no envio.
    */
-  const criterioContato = oportunidade(lead()).criterios.find((x) =>
-    x.rotulo.includes("Contato"),
-  );
+  // Casa por `id`: o rotulo virou "WhatsApp ou celular disponivel".
+  const criterioContato = oportunidade(lead()).criterios.find((x) => x.id === "contato");
   ok(
     "14. score NÃO inventa WhatsApp — fala em 'provável', a confirmar",
     /prov[áa]vel|confirmar/i.test(criterioContato?.base ?? ""),
@@ -300,8 +304,8 @@ async function main() {
   ok(
     "14b. telefone fixo não é declarado 'sem WhatsApp'",
     /pode ter/i.test(
-      oportunidade(lead({ telefone: "(34) 3212-4000", whatsapp: null })).criterios.find((x) =>
-        x.rotulo.includes("Contato"),
+      oportunidade(lead({ telefone: "(34) 3212-4000", whatsapp: null })).criterios.find(
+        (x) => x.id === "contato",
       )?.base ?? "",
     ),
     "WhatsApp Business existe em linha fixa",

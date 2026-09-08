@@ -29,6 +29,14 @@ const AGREGADORES = [
   "bio.site",
   "bio.link",
   "campsite.bio",
+  /**
+   * Encontrados na base de Uberlândia: link-in-bio e encurtador de WhatsApp
+   * usados como se fossem site. Entraram aqui depois que a raspagem de
+   * telefone tratou uma página do keepo.io como "site próprio" da pizzaria.
+   */
+  "keepo.io",
+  "mechamenozap.com.br",
+  "shatsapp.com",
   "negocio.site", // Google Business site — descontinuado pelo Google
   "business.site",
   "goomer.app",

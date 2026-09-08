@@ -290,6 +290,38 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
       { chave: "craft", valor: "electronics_repair" },
     ],
   },
+  {
+    termos: ["auto elétrica", "auto eletrica", "eletricista automotivo"],
+    filtros: [{ chave: "shop", valor: "car_repair", extra: '["service:vehicle:electrical"]' }],
+  },
+  {
+    termos: ["assistência de eletrônicos", "eletrônicos", "conserto de eletrodomésticos"],
+    filtros: [
+      { chave: "craft", valor: "electronics_repair" },
+      { chave: "shop", valor: "appliance" },
+    ],
+  },
+  /**
+   * Limpeza e eventos são ramos que o OpenStreetMap mal cobre: não têm tag
+   * consolidada e quase ninguém mapeia empresa que atende no endereço do
+   * cliente. Ficam aqui porque são alvo comercial legítimo (contrato mensal,
+   * agenda de equipe) e porque a busca por nome ainda alcança alguma coisa —
+   * mas espere pouco resultado, e isso é limitação da fonte, não do filtro.
+   */
+  {
+    termos: ["empresa de limpeza", "limpeza", "conservação", "diarista"],
+    filtros: [
+      { chave: "craft", valor: "cleaning" },
+      { chave: "office", valor: "cleaning" },
+    ],
+  },
+  {
+    termos: ["empresa de eventos", "eventos", "organização de eventos"],
+    filtros: [
+      { chave: "amenity", valor: "events_venue" },
+      { chave: "office", valor: "event_management" },
+    ],
+  },
 ];
 
 function normalizar(texto: string): string {

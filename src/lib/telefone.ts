@@ -19,6 +19,41 @@ const DDDS_VALIDOS = new Set([
   93, 94, 95, 96, 97, 98, 99,
 ]);
 
+/**
+ * DDDs de cada estado.
+ *
+ * Serve para uma pergunta só, e importante: o número que eu achei pode ser
+ * desta empresa? Um telefone com DDD 11 no rodapé do site de uma oficina de
+ * Uberlândia é quase certamente de outra coisa — o desenvolvedor do site, a
+ * matriz, um anunciante. Sem essa checagem, o enriquecimento grava número de
+ * empresa errada, e a mensagem vai para um estranho.
+ */
+const DDD_POR_UF: Record<string, number[]> = {
+  AC: [68], AL: [82], AM: [92, 97], AP: [96], BA: [71, 73, 74, 75, 77],
+  CE: [85, 88], DF: [61], ES: [27, 28], GO: [62, 64], MA: [98, 99],
+  MG: [31, 32, 33, 34, 35, 37, 38], MS: [67], MT: [65, 66], PA: [91, 93, 94],
+  PB: [83], PE: [81, 87], PI: [86, 89], PR: [41, 42, 43, 44, 45, 46],
+  RJ: [21, 22, 24], RN: [84], RO: [69], RR: [95],
+  RS: [51, 53, 54, 55], SC: [47, 48, 49], SE: [79],
+  SP: [11, 12, 13, 14, 15, 16, 17, 18, 19], TO: [63],
+};
+
+/**
+ * O DDD do número combina com o estado do lead?
+ *
+ * Devolve `true` quando não há UF para comparar: sem o dado, a resposta certa
+ * é "não sei", e "não sei" não pode reprovar um número — só a incompatibilidade
+ * COMPROVADA reprova.
+ */
+export function dddCompativel(telefone: string | null | undefined, uf?: string | null): boolean {
+  const tel = validarTelefone(telefone);
+  if (!tel) return false;
+  const esperados = DDD_POR_UF[(uf ?? "").trim().toUpperCase()];
+  if (!esperados) return true;
+  const ddd = Number(tel.e164.slice(2, 4));
+  return esperados.includes(ddd);
+}
+
 export type TelefoneValidado = {
   /** Só dígitos, com DDI: 5534991345424 */
   e164: string;

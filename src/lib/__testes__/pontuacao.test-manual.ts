@@ -54,9 +54,9 @@ async function main() {
    * quem tem muitas: negocio de bairro com 500 avaliacoes e comum, e continua
    * pequeno. Quem prova porte e lib/porte.ts, nunca o volume de avaliacao.
    */
-  ok("avaliacoes somam pouco, e para cima",
+  ok("avaliacoes somam ate 10, e para cima",
      oportunidade(comAval).score > oportunidade(semAval).score &&
-     oportunidade(comAval).score - oportunidade(semAval).score <= 6,
+     oportunidade(comAval).score - oportunidade(semAval).score <= 10,
      `${oportunidade(semAval).score} vs ${oportunidade(comAval).score}`);
   ok("nao avaliado cita avaliacoes Google",
      pontuar(semAval).naoAvaliado.some(s => /avalia/i.test(s)));
@@ -67,8 +67,11 @@ async function main() {
   ok("sem-site pontua mais que nao-verificado",
      oportunidade(confirmado).score > oportunidade(desconhecido).score,
      `${oportunidade(confirmado).score} vs ${oportunidade(desconhecido).score}`);
-  const crit = oportunidade(desconhecido).criterios.find(c => /Sem site/.test(c.rotulo));
-  ok("e explica que nao sabe", !!crit && /n[ãa]o verificado/i.test(crit.base), crit?.base ?? "");
+  // Casa por `id`, nao por rotulo: o texto de tela ja mudou duas vezes.
+  const crit = oportunidade(desconhecido).criterios.find(c => c.id === "sem-site");
+  // Aceita "nao verificado" e "nao conferido": o que importa e a base DIZER
+  // que ninguem checou, nao a palavra exata escolhida para a tela.
+  ok("e explica que nao sabe", !!crit && /n[ãa]o (verificado|conferido)/i.test(crit.base), crit?.base ?? "");
 
   console.log("\n[telefone nao soma duas vezes]");
   const soTel = lead({ telefone: "(34) 9" });
@@ -83,9 +86,13 @@ async function main() {
   ok("restaurante = medio", potencialDoSegmento(lead({categoria:"restaurant"})) === "medio");
   ok("salao = medio", potencialDoSegmento(lead({categoria:"hairdresser"})) === "medio");
   ok("desconhecido = avaliar", potencialDoSegmento(lead({categoria:"zzz_qualquer"})) === "avaliar");
-  ok("segmento nao decide sozinho (max 20 de 100)",
-     oportunidade(lead({categoria:"car_repair"})).criterios[0].maximo === 20,
-     "caiu de 40 para 20 para abrir espaco a porte, contato e ausencia de site");
+  /**
+   * O criterio principal passou a ser "ramo com sistema APLICAVEL" e vale 25
+   * de 120. Continua nao decidindo sozinho: uma oficina sem telefone perde 40
+   * pontos entre credito e penalidade, e nenhum ramo compensa isso.
+   */
+  ok("ramo nao decide sozinho (max 25 de 120)",
+     oportunidade(lead({categoria:"car_repair"})).criterios[0].maximo === 25);
 
   console.log("\n[limites]");
   ok("score nunca passa de 100", oportunidade(lead({

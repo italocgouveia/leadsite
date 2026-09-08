@@ -51,7 +51,14 @@
     "auditoria": "tsx src/scripts/auditoria-base.ts",
     "coletar": "tsx src/scripts/coletar-uberlandia.ts",
     "deduplicar": "tsx src/scripts/deduplicar-base.ts",
-    "relatorio": "tsx src/scripts/relatorio-base.ts"
+    "relatorio": "tsx src/scripts/relatorio-base.ts",
+    "test:qualificacao": "tsx src/lib/__testes__/qualificacao.test-manual.ts",
+    "relatorio:qualificacao": "tsx src/scripts/relatorio-qualificacao.ts",
+    "test:enriquecimento": "tsx src/lib/__testes__/enriquecimento.test-manual.ts",
+    "enriquecer": "tsx src/scripts/enriquecer.ts",
+    "test:canais": "tsx src/lib/__testes__/canais.test-manual.ts",
+    "relatorio:canais": "tsx src/scripts/relatorio-canais.ts",
+    "relatorio:final": "tsx src/scripts/relatorio-final.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

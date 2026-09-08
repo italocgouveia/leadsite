@@ -47,7 +47,11 @@ export async function GET(request: Request) {
     somentePequenos: bool(q.get("somentePequenos")),
     comPotencialSistema: bool(q.get("comPotencialSistema")),
     semSiteConfirmado: bool(q.get("semSiteConfirmado")),
-    nivel: nivel === "A" || nivel === "B" || nivel === "C" ? nivel : undefined,
+    nivel:
+      nivel === "A" || nivel === "B" || nivel === "C" || nivel === "D" ? nivel : undefined,
+    prontosParaProspeccao: bool(q.get("prontosParaProspeccao")),
+    potencialForte: bool(q.get("potencialForte")),
+    naoContatado: bool(q.get("naoContatado")),
   };
 
   const quantidade = Math.min(Math.max(num(q.get("quantidade")) ?? 50, 1), 200);
