@@ -1,7 +1,7 @@
 import { loadEnvConfig } from "@next/env";
 loadEnvConfig(process.cwd());
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import type { Lead } from "@/lib/db";
 import {
   avaliarOportunidadeComercial,
@@ -247,20 +247,51 @@ function main() {
     "24. a tela de caça lê o veredito, não recalcula",
     /l\.oportunidade\.elegivel/.test(fonteCaca) && !/probabilidadeComercial/.test(fonteCaca),
   );
+  /**
+   * AS ABAS VIRARAM ROTAS.
+   *
+   * A versão anterior cobrava quatro abas dentro da Central. Elas existiam e
+   * funcionavam — e escondiam áreas inteiras atrás de um segundo clique numa
+   * tela que é outra coisa. Encontrar, priorizar e enriquecer são operações
+   * distintas e agora cada uma tem entrada própria na barra lateral.
+   *
+   * O teste mudou junto porque o contrato mudou, não para ficar verde: ele
+   * cobra mais do que antes, exigindo a rota E o link no menu.
+   */
+  const AREAS = [
+    { rota: "src/app/cacada/page.tsx", href: "/cacada", nome: "Encontrar clientes" },
+    { rota: "src/app/radar/page.tsx", href: "/radar", nome: "Radar comercial" },
+    { rota: "src/app/enriquecimento/page.tsx", href: "/enriquecimento", nome: "Enriquecimento" },
+    { rota: "src/app/prospeccao/page.tsx", href: "/prospeccao", nome: "Central de prospecção" },
+    { rota: "src/app/leads/page.tsx", href: "/leads", nome: "Lista de leads" },
+  ];
+  const fonteMenu = readFileSync("src/components/menu.tsx", "utf8");
+
+  for (const a of AREAS) {
+    ok(
+      `25. ${a.nome} tem página própria`,
+      existsSync(a.rota),
+      a.rota,
+    );
+    ok(
+      `25b. …e entrada na barra lateral`,
+      new RegExp(`href: "${a.href}"`).test(fonteMenu),
+      "área sem link no menu não existe para quem usa",
+    );
+  }
+
   ok(
-    "25. …e tem as quatro abas",
-    ["melhores", "whatsapp", "instagram", "enriquecer"].every((a) =>
-      new RegExp(`id: "${a}"`).test(fonteCaca),
-    ),
+    "26. a Central NÃO tem abas de operação dentro dela",
+    !/aba === "enriquecer"|aba === "melhores"/.test(fonteCaca),
+    "priorizar e enriquecer viraram rota, não aba",
   );
+
   ok(
-    "26. …com o descarte fora do caminho, mas a um clique",
-    /esconderDescartados/.test(fonteCaca) && /mostrarDescartados/.test(fonteCaca),
+    "27. …e a confirmação antes de criar campanha continua",
+    /confirmando/.test(fonteCaca) && /CRIAR \$\{prontos\.length\} RASCUNHO/.test(fonteCaca),
+    "buscar nunca emenda em enviar",
   );
-  ok(
-    "27. …e uma confirmação antes de criar campanha",
-    /PREPARAR CAMPANHA/.test(fonteCaca) && /confirmando/.test(fonteCaca),
-  );
+
 
   /**
    * A regressão do filtro ignorado: a tela mandava `fila` e a rota não lia.

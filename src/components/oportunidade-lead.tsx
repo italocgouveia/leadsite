@@ -191,14 +191,14 @@ export default function OportunidadeLead({ lead }: { lead: Lead }) {
             ABRIR SITE
           </a>
         )}
-        <Link href="/materiais" className="btn-secundario">
+        <Link href="/prospeccao" className="btn-secundario">
           COMO ABORDAR
         </Link>
         <PrepararAbordagem lead={lead} />
         <AssistenteLead leadId={lead.id} />
         <AnaliseSite leadId={lead.id} temSite={Boolean(site)} />
         <Link href="/cacada" className="btn-secundario">
-          VOLTAR À CENTRAL
+          ENCONTRAR CLIENTES
         </Link>
       </div>
     </section>

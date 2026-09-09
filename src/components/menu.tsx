@@ -6,31 +6,63 @@ import { useEffect, useState } from "react";
 import { sair } from "@/app/entrar/acoes";
 
 /**
- * A CENTRAL VEM PRIMEIRO, e o motivo não é estético.
+ * A BARRA LATERAL É A NAVEGAÇÃO. Cada área tem entrada própria.
  *
- * A Central foi construída, subiu para produção e ficou invisível: o menu
- * levava para `/prospeccao` e nada apontava para `/cacada`. Uma tela sem
- * entrada no menu não existe para quem usa o sistema — deploy não é entrega.
+ * A versão anterior escondia áreas inteiras dentro de abas da Central: para
+ * chegar em enriquecimento você entrava em outra tela e clicava de novo. Isso
+ * confunde duas coisas diferentes — a Central é BIBLIOTECA (o que falar), e
+ * encontrar, priorizar e enriquecer são OPERAÇÃO (o que fazer).
  *
- * `/prospeccao` continua no menu porque é a lista completa, com edição em
- * massa, e continua útil. A diferença é a pergunta que cada uma responde: a
- * Central diz "quem eu abordo agora"; a Prospecção mostra tudo.
+ * Os grupos nomeiam a intenção, não a tecnologia:
+ *
+ *   PROSPECTAR  trazer empresa e decidir quem abordar
+ *   CONVERSAR   os canais e a operação de envio
+ *   MATERIAL    o que falar em cada situação
+ *   ACOMPANHAR  o que já está em movimento
+ *
+ * `/` continua existindo e funcionando — é a busca antiga, hoje superada por
+ * "Encontrar clientes", que usa a MESMA rota de coleta. Ela saiu do menu para
+ * não oferecer duas portas para a mesma coisa, mas o link salvo de alguém
+ * continua abrindo.
  */
-const PRINCIPAIS = [
-  { href: "/cacada", rotulo: "Central", icone: "alvo" },
-  { href: "/prospeccao", rotulo: "Prospecção", icone: "lista" },
-  { href: "/", rotulo: "Buscar leads", icone: "busca" },
-  { href: "/conversas", rotulo: "Conversas", icone: "balao" },
-  { href: "/disparos", rotulo: "Disparos", icone: "aviao" },
-  { href: "/sites", rotulo: "Sites", icone: "monitor" },
+type ItemMenu = { href: string; rotulo: string; icone: string };
+type Grupo = { titulo: string; itens: readonly ItemMenu[] };
+
+const GRUPOS: readonly Grupo[] = [
+  {
+    titulo: "Prospectar",
+    itens: [
+      { href: "/cacada", rotulo: "Encontrar clientes", icone: "busca" },
+      { href: "/radar", rotulo: "Radar comercial", icone: "alvo" },
+      { href: "/enriquecimento", rotulo: "Enriquecimento", icone: "globo" },
+      { href: "/leads", rotulo: "Lista de leads", icone: "lista" },
+    ],
+  },
+  {
+    titulo: "Conversar",
+    itens: [
+      { href: "/conversas", rotulo: "Conversas", icone: "balao" },
+      { href: "/instagram", rotulo: "Instagram", icone: "camera" },
+      { href: "/disparos", rotulo: "Envio de mensagens", icone: "aviao" },
+      { href: "/campanhas", rotulo: "Campanhas", icone: "foguete" },
+    ],
+  },
+  {
+    titulo: "Material",
+    itens: [{ href: "/prospeccao", rotulo: "Central de prospecção", icone: "livro" }],
+  },
+  {
+    titulo: "Acompanhar",
+    itens: [
+      { href: "/painel", rotulo: "Painel", icone: "grafico" },
+      { href: "/pipeline", rotulo: "Pipeline", icone: "colunas" },
+      { href: "/sites", rotulo: "Sites", icone: "monitor" },
+    ],
+  },
 ] as const;
 
-const SECUNDARIOS = [
-  { href: "/materiais", rotulo: "Biblioteca", icone: "livro" },
-  { href: "/instagram", rotulo: "Instagram", icone: "camera" },
-  { href: "/painel", rotulo: "Painel", icone: "grafico" },
-  { href: "/pipeline", rotulo: "Pipeline", icone: "colunas" },
-  { href: "/campanhas", rotulo: "Campanhas", icone: "foguete" },
+/** Ajuste e diagnóstico: importam raramente, e ficam fora do caminho. */
+const SECUNDARIOS: readonly ItemMenu[] = [
   { href: "/calibracao", rotulo: "Calibração", icone: "regua" },
   { href: "/config", rotulo: "Configurações", icone: "engrenagem" },
 ] as const;
@@ -230,8 +262,15 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
   };
 
   const links = (
-    <nav className="space-y-1">
-      <div className="space-y-0.5">{PRINCIPAIS.map(item)}</div>
+    <nav className="space-y-3">
+      {GRUPOS.map((g) => (
+        <div key={g.titulo}>
+          <p className="px-2.5 pb-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-[var(--texto-3)]">
+            {g.titulo}
+          </p>
+          <div className="space-y-0.5">{g.itens.map(item)}</div>
+        </div>
+      ))}
 
       {/**
        * "Mais" abre fechado. As telas de dentro são de ajuste e diagnóstico,

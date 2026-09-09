@@ -2,166 +2,107 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Indicadores, Abas, Etiqueta, Barra, FatoEInferencia, Vazio } from "@/components/central";
+import { Indicadores, Etiqueta, Vazio } from "@/components/central";
 
 /**
- * 🎯 CENTRAL DE PROSPECÇÃO — o cockpit.
+ * 👥 ENCONTRAR CLIENTES — a tela de aquisição, e só ela.
  *
- * A pergunta que esta tela responde, sem exigir navegação nenhuma:
+ * O QUE MUDOU AQUI, E POR QUÊ
  *
- *   quem eu abordo agora · por qual canal · o que eu vendo para ela ·
- *   por que ela · o que eu falo · e o que faço se responder
+ * Esta tela já foi um cockpit com quatro abas dentro: melhores, WhatsApp,
+ * Instagram e enriquecer. Funcionava, e mesmo assim estava errado — obrigava
+ * a entrar aqui e clicar de novo para chegar em coisas que são áreas
+ * diferentes do trabalho. Priorizar virou `/radar`, descobrir canal virou
+ * `/enriquecimento`, e o que sobrou nesta página é uma coisa só: trazer
+ * empresa nova para dentro.
  *
- * O QUE ELA NÃO FAZ
+ * A BUSCA REAL. O formulário chama `/api/leads/search`, que já existe e já
+ * grava — a mesma rota que a tela de busca antiga usa. Nenhum coletor novo,
+ * nenhuma segunda régua.
  *
- * Não lidera com o tamanho da base. "1.293 leads" é verdade e não serve para
- * nada: diz quantas linhas existem no banco, não com quantas empresas dá para
- * falar. E não tem régua própria — quem decide quem é oportunidade é
- * `avaliarOportunidadeComercial`, a mesma função que a campanha consulta.
- *
- * DUAS APIS, NENHUMA NOVA
- *
- * `/api/disparo/oportunidades` traz o funil de aquisição e os leads;
- * `/api/comercial/resumo` traz o funil de VENDA (abordados → responderam →
- * proposta) e os follow-ups. São perguntas diferentes sobre o mesmo negócio,
- * e a Central é o único lugar onde as duas aparecem juntas.
- *
- * Nada aqui envia mensagem. O botão de campanha cria RASCUNHOS.
+ * O RESULTADO É REVISADO ANTES DE VIRAR CAMPANHA. A busca grava os
+ * cadastros; o que ela NÃO faz é montar campanha sozinha. Para isso existe o
+ * botão de preparar, que passa pela confirmação.
  */
-
-type Aba = "melhores" | "whatsapp" | "instagram" | "enriquecer";
 
 type Motivo = { texto: string; pontos: number; tipo: "fato" | "inferencia" };
 
-type LeadCentral = {
+type LeadAchado = {
   id: string;
   nome: string;
   segmento: string;
   cidade: string | null;
   canal: "ambos" | "whatsapp" | "instagram" | "site" | "sem-canal";
   canalRotulo: string;
-  instagramUsername: string | null;
-  instagramUrl: string | null;
-  instagramStatus: string | null;
-  website: string | null;
-  whatsappUrl: string | null;
-  telefoneFormatado: string | null;
-  sistema: string | null;
-  modulos: string[];
-  porteEstimadoRotulo: string;
-  scoreComercial: number;
-  scoreContatabilidade: number;
-  alcanceRotulo: string;
-  decisao: "quero-vender" | "vale-abordar" | "nao-prioritario";
   decisaoRotulo: string;
   probabilidade: number;
+  sistema: string | null;
   positivos: Motivo[];
-  negativos: Motivo[];
-  dor2:
-    | { tipo: "confirmada"; texto: string }
-    | { tipo: "provavel"; texto: string; sinais: string[] }
-    | { tipo: "nenhuma" };
-  temSite: boolean;
-  contatoRotulo: string;
-  telefoneOrigem: string | null;
-  enriquecimentoPrioridade: "alta" | "media" | "baixa" | null;
-  enriquecimentoMotivo: string;
-  oportunidade: {
-    elegivel: boolean;
-    bloqueios: string[];
-    temPotencialDeSolucao: boolean;
-    aguardandoCanal: boolean;
-    reabreSozinha: boolean;
-  };
+  whatsappUrl: string | null;
+  instagramUrl: string | null;
+  instagramUsername: string | null;
+  website: string | null;
+  telefoneFormatado: string | null;
+  oportunidade: { elegivel: boolean; bloqueios: string[]; aguardandoCanal: boolean };
 };
 
 type Funil = {
   total: number;
-  comPotencialDeSolucao: number;
   oportunidadesReais: number;
   prontasParaWhatsapp: number;
   prontasParaInstagram: number;
   melhores: number;
   aguardandoCanal: number;
-  reabremSozinhas: number;
-  bloqueios: { motivo: string; quantidade: number }[];
 };
 
-type Resposta = {
-  leads: LeadCentral[];
+type Painel = {
+  leads: LeadAchado[];
   funil: Funil;
-  canais: { praca: string };
+  canais: { praca: string; whatsapp: number; instagram: number; semCanal: number; total: number };
   segmentos: { nome: string; total: number }[];
 };
 
-/** O funil de VENDA, de /api/comercial/resumo. Outro assunto, outra API. */
-type Comercial = {
-  indicadores: {
-    abordados: number;
-    responderam: number;
-    interessados: number;
-    propostas: number;
-    ganhos: number;
-  };
-  funil: { etapa: string; quantos: number; taxa: number | null }[];
-  followUps: { id: string; leadId: string; lead: string; motivo?: string | null }[];
+type ResultadoBusca = {
+  leads?: { id: string; nome: string }[];
+  totalEncontrado?: number;
+  totalContatavel?: number;
+  aviso?: string;
+  erro?: string;
 };
 
-const ABAS: { id: Aba; rotulo: string; ajuda: string; conta: (f: Funil) => number }[] = [
-  { id: "melhores", rotulo: "🔥 Melhores", ajuda: "os dois canais e vale vender", conta: (f) => f.melhores },
-  { id: "whatsapp", rotulo: "📱 WhatsApp", ajuda: "podem entrar em campanha hoje", conta: (f) => f.prontasParaWhatsapp },
-  { id: "instagram", rotulo: "📸 Instagram", ajuda: "abordagem manual, uma a uma", conta: (f) => f.prontasParaInstagram },
-  { id: "enriquecer", rotulo: "🌐 Enriquecer", ajuda: "boas empresas sem canal", conta: (f) => f.aguardandoCanal },
-];
+export default function EncontrarClientesPage() {
+  const [nicho, setNicho] = useState("");
+  const [cidade, setCidade] = useState("Uberlândia");
+  const [estado, setEstado] = useState("MG");
+  const [quantidade, setQuantidade] = useState(20);
 
-const STATUS_IG = [
-  { valor: "abordado", rotulo: "ABORDADO" },
-  { valor: "respondeu", rotulo: "RESPONDEU" },
-  { valor: "sem-interesse", rotulo: "SEM INTERESSE" },
-  { valor: "cliente", rotulo: "CLIENTE" },
-];
+  const [buscando, setBuscando] = useState(false);
+  const [busca, setBusca] = useState<ResultadoBusca | null>(null);
 
-const PRIORIDADE_ENRIQ: Record<string, string> = {
-  alta: "🔥 alta",
-  media: "🟡 média",
-  baixa: "⚪ baixa",
-};
-
-export default function CentralPage() {
-  const [aba, setAba] = useState<Aba>("melhores");
-  const [dados, setDados] = useState<Resposta | null>(null);
-  const [com, setCom] = useState<Comercial | null>(null);
+  const [painel, setPainel] = useState<Painel | null>(null);
   const [carregando, setCarregando] = useState(true);
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [criando, setCriando] = useState(false);
-  const [confirmando, setConfirmando] = useState(false);
-
-  // ---- filtros do radar ----
-  const [soPequenos, setSoPequenos] = useState(true);
-  const [soComSistema, setSoComSistema] = useState(true);
-  const [soNaoContatados, setSoNaoContatados] = useState(false);
   const [soNaPraca, setSoNaPraca] = useState(true);
+  const [soComCanal, setSoComCanal] = useState(true);
   const [segmento, setSegmento] = useState("");
-  const [mostrarDescartados, setMostrarDescartados] = useState(false);
+
+  const [confirmando, setConfirmando] = useState(false);
+  const [criando, setCriando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const q = new URLSearchParams({ aba, quantidade: "200" });
+      const q = new URLSearchParams({ quantidade: "60" });
       q.set("somenteWhatsapp", "0");
       q.set("incluirContatados", "1");
-      if (!mostrarDescartados) q.set("esconderDescartados", "1");
-      if (soPequenos) q.set("somentePequenos", "1");
-      if (soComSistema) q.set("comPotencialSistema", "1");
-      if (soNaoContatados) q.set("naoContatado", "1");
+      if (soComCanal) q.set("esconderDescartados", "1");
       if (soNaPraca) q.set("somenteNaPraca", "1");
       if (segmento) q.set("segmento", segmento);
-
-      setDados(await fetch(`/api/disparo/oportunidades?${q}`).then((r) => r.json()));
+      setPainel(await fetch(`/api/disparo/oportunidades?${q}`).then((r) => r.json()));
     } finally {
       setCarregando(false);
     }
-  }, [aba, soPequenos, soComSistema, soNaoContatados, soNaPraca, segmento, mostrarDescartados]);
+  }, [soNaPraca, soComCanal, segmento]);
 
   useEffect(() => {
     void (async () => {
@@ -169,43 +110,39 @@ export default function CentralPage() {
     })();
   }, [carregar]);
 
-  /** O funil de venda muda devagar — busca uma vez, não a cada filtro. */
-  useEffect(() => {
-    void (async () => {
-      try {
-        setCom(await fetch("/api/comercial/resumo").then((r) => r.json()));
-      } catch {
-        /* a Central funciona sem ele; os cartões de venda ficam em zero. */
-      }
-    })();
-  }, []);
-
-  const trocarAba = useCallback((nova: Aba) => {
-    setAba(nova);
-    setConfirmando(false);
-    setAviso(null);
-  }, []);
-
-  const marcarInstagram = useCallback(async (id: string, status: string) => {
-    setDados((d) =>
-      d ? { ...d, leads: d.leads.map((l) => (l.id === id ? { ...l, instagramStatus: status } : l)) } : d,
-    );
-    await fetch("/api/instagram", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadId: id, status }),
-    });
-  }, []);
+  const buscar = useCallback(async () => {
+    if (nicho.trim().length < 2 || cidade.trim().length < 2) return;
+    setBuscando(true);
+    setBusca(null);
+    try {
+      const r: ResultadoBusca = await fetch("/api/leads/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nicho: nicho.trim(),
+          cidade: cidade.trim(),
+          estado: estado.trim(),
+          quantidade,
+        }),
+      }).then((x) => x.json());
+      setBusca(r);
+      await carregar();
+    } catch {
+      setBusca({ erro: "A busca falhou. O mapa aberto é mantido por voluntários e cai com frequência — tente de novo em um minuto." });
+    } finally {
+      setBuscando(false);
+    }
+  }, [nicho, cidade, estado, quantidade, carregar]);
 
   const prontos = useMemo(
     () =>
-      (dados?.leads ?? []).filter(
+      (painel?.leads ?? []).filter(
         (l) => l.oportunidade.elegivel && (l.canal === "whatsapp" || l.canal === "ambos"),
       ),
-    [dados],
+    [painel],
   );
 
-  const criarCampanha = useCallback(async () => {
+  const prepararCampanha = useCallback(async () => {
     if (!prontos.length) return;
     setCriando(true);
     setAviso(null);
@@ -215,199 +152,146 @@ export default function CentralPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nome: `Central — ${data}`,
+          nome: `Prospecção — ${data}`,
           leadIds: prontos.slice(0, 300).map((l) => l.id),
-          filtro: { origem: "central", aba },
+          filtro: { origem: "encontrar-clientes" },
         }),
       }).then((x) => x.json());
-
       setConfirmando(false);
       setAviso(
         r.campanha?.id
-          ? `Rascunhos criados para ${prontos.length} empresa(s). Nada foi enviado — revise e aprove em /disparos.`
+          ? `Rascunhos criados para ${prontos.length} empresa(s). Nada foi enviado — revise e aprove em Envio de mensagens.`
           : (r.erro ?? "Não foi possível criar a campanha."),
       );
     } finally {
       setCriando(false);
     }
-  }, [prontos, aba]);
+  }, [prontos]);
 
-  const f = dados?.funil;
-  const praca = dados?.canais.praca?.split("/")[0] ?? "a praça";
-  const lista = dados?.leads ?? [];
-  /** O melhor movimento do momento: o primeiro da lista já vem ordenado. */
-  const destaque = lista.find((l) => l.oportunidade.elegivel) ?? lista[0] ?? null;
+  const f = painel?.funil;
+  const c = painel?.canais;
+  const lista = painel?.leads ?? [];
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <header className="mb-5">
-        <h1 className="text-[24px] font-semibold tracking-tight">Central de prospecção</h1>
+        <h1 className="text-[24px] font-semibold tracking-tight">Encontrar clientes</h1>
         <p className="mt-1 text-[13px] text-[var(--texto-3)]">
-          Encontre oportunidades, escolha a melhor abordagem e transforme leads em conversas.
+          Traga empresas novas para a base e veja quais já dá para abordar.
         </p>
       </header>
 
-      {/**
-       * OS SETE NÚMEROS. Os quatro primeiros são aquisição (quem dá para
-       * abordar); os três últimos são venda (o que já está em movimento). Os
-       * dois funis são perguntas diferentes e vêm de APIs diferentes — juntá-los
-       * numa fileira só é o que faz esta tela ser um cockpit e não um relatório.
-       */}
-      {f && (
+      {/* ─────────────────── a busca ─────────────────── */}
+      <section className="cartao mb-5 p-5">
+        <p className="text-[15px] font-semibold">O que você quer encontrar?</p>
+        <p className="mt-0.5 text-[12px] text-[var(--texto-3)]">
+          Ex.: oficinas, barbearias, clínicas odontológicas, pet shops, restaurantes
+        </p>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void buscar();
+          }}
+          className="mt-3 flex flex-wrap items-end gap-2"
+        >
+          <div className="min-w-[200px] flex-1">
+            <label className="text-[11px] text-[var(--texto-3)]">Nicho</label>
+            <input
+              value={nicho}
+              onChange={(e) => setNicho(e.target.value)}
+              placeholder="oficina mecânica"
+              className="campo mt-0.5 w-full py-1.5 text-[13px]"
+            />
+          </div>
+          <div className="w-40">
+            <label className="text-[11px] text-[var(--texto-3)]">Cidade</label>
+            <input
+              value={cidade}
+              onChange={(e) => setCidade(e.target.value)}
+              className="campo mt-0.5 w-full py-1.5 text-[13px]"
+            />
+          </div>
+          <div className="w-20">
+            <label className="text-[11px] text-[var(--texto-3)]">UF</label>
+            <input
+              value={estado}
+              onChange={(e) => setEstado(e.target.value.toUpperCase().slice(0, 2))}
+              className="campo mt-0.5 w-full py-1.5 text-[13px]"
+            />
+          </div>
+          <div className="w-24">
+            <label className="text-[11px] text-[var(--texto-3)]">Quantas</label>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={quantidade}
+              onChange={(e) => setQuantidade(Math.min(60, Math.max(1, Number(e.target.value) || 20)))}
+              className="campo mt-0.5 w-full py-1.5 text-[13px] tabular-nums"
+            />
+          </div>
+          <button type="submit" disabled={buscando || nicho.trim().length < 2} className="btn-primario">
+            {buscando ? "Buscando…" : "🔎 ENCONTRAR"}
+          </button>
+        </form>
+
+        <p className="mt-2 text-[11px] leading-relaxed text-[var(--texto-3)]">
+          A fonte é o mapa aberto (OpenStreetMap), grátis e sem chave. Ele cobre bem comércio de
+          rua — oficina, restaurante, salão, pet shop — e mal cobre ramo de serviço, que quase
+          ninguém mapeia. Contato aparece em poucos: 111 dos 1.426 estabelecimentos de Uberlândia.
+        </p>
+
+        {busca && (
+          <div className="mt-3 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
+            {busca.erro ? (
+              <p className="text-[12.5px] text-[var(--vermelho)]">{busca.erro}</p>
+            ) : (
+              <>
+                <p className="text-[13px]">
+                  <strong className="tabular-nums">{busca.leads?.length ?? 0}</strong> empresa(s)
+                  gravada(s)
+                  {busca.totalEncontrado != null && (
+                    <span className="text-[var(--texto-3)]">
+                      {" "}
+                      · {busca.totalEncontrado} mapeada(s) · {busca.totalContatavel ?? 0} com contato
+                    </span>
+                  )}
+                </p>
+                {busca.aviso && (
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--texto-3)]">{busca.aviso}</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ─────────────────── o que temos ─────────────────── */}
+      {f && c && (
         <div className="mb-5">
           <Indicadores
             itens={[
-              { rotulo: "🔥 Oportunidades quentes", valor: f.melhores, destaque: true, ajuda: "os dois canais e classificação 'quero vender'", onClick: () => trocarAba("melhores") },
-              { rotulo: "📱 WhatsApp prontos", valor: f.prontasParaWhatsapp, ajuda: "passam em todas as travas de campanha", onClick: () => trocarAba("whatsapp") },
-              { rotulo: "📸 Instagram", valor: f.prontasParaInstagram, ajuda: "abordagem manual", onClick: () => trocarAba("instagram") },
-              { rotulo: "🌐 Precisam enriquecer", valor: f.aguardandoCanal, ajuda: "boa empresa, canal ainda não encontrado", onClick: () => trocarAba("enriquecer") },
-              { rotulo: "🔁 Follow-ups", valor: com?.followUps.length ?? 0, ajuda: "vencidos ou para hoje" },
-              { rotulo: "💬 Responderam", valor: com?.indicadores.responderam ?? 0, ajuda: "conversa aberta, esperando você" },
-              { rotulo: "🎯 Propostas", valor: com?.indicadores.propostas ?? 0, ajuda: "aguardando retorno" },
+              { rotulo: "🔥 Melhores", valor: f.melhores, destaque: true, ajuda: "os dois canais e vale vender" },
+              { rotulo: "✅ Abordáveis", valor: f.oportunidadesReais },
+              { rotulo: "📱 WhatsApp", valor: c.whatsapp },
+              { rotulo: "📸 Instagram", valor: c.instagram },
+              { rotulo: "🌐 Sem canal", valor: c.semCanal, ajuda: "vá para Enriquecimento" },
+              { rotulo: "Base", valor: c.total },
+              { rotulo: "📍 Praça", valor: c.praca?.split("/")[0] ?? "—" },
             ]}
           />
         </div>
       )}
 
-      {/**
-       * §38 — a tela não maquia o problema. Se a base é grande e a fatia
-       * abordável é pequena, ela diz isso com todas as letras, e diz o que
-       * fazer a respeito.
-       */}
-      {f && (
-        <p className="mb-5 rounded-[10px] bg-[var(--superficie)] px-4 py-3 text-[12.5px] leading-relaxed text-[var(--texto-2)]">
-          Você tem <strong className="tabular-nums">{f.total}</strong> empresas cadastradas, e{" "}
-          <strong className="tabular-nums text-[var(--acao)]">{f.oportunidadesReais}</strong> com
-          canal utilizável neste momento.{" "}
-          {f.aguardandoCanal > 0 && (
-            <>
-              Outras <strong className="tabular-nums">{f.aguardandoCanal}</strong> são boas empresas
-              esperando um canal aparecer —{" "}
-              <button onClick={() => trocarAba("enriquecer")} className="text-[var(--acao)] underline">
-                enriquecer
-              </button>
-              .
-            </>
-          )}
-          {f.reabremSozinhas > 0 && (
-            <> ⏳ {f.reabremSozinhas} voltam quando a janela de recontato fechar.</>
-          )}
-        </p>
-      )}
-
-      {/* ─────────────── seu próximo melhor movimento ─────────────── */}
-      {destaque && (
-        <section className="cartao mb-6 p-5">
-          <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
-            Seu próximo melhor movimento
-          </p>
-          <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-[19px] font-semibold">{destaque.nome}</h2>
-            <span className="text-[13px] tabular-nums text-[var(--texto-3)]">
-              prioridade <strong className="text-[var(--acao)]">{destaque.probabilidade}/100</strong>
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <Etiqueta>📍 {destaque.cidade ?? "cidade não informada"}</Etiqueta>
-            <Etiqueta>🏪 {destaque.segmento}</Etiqueta>
-            <Etiqueta tom={destaque.oportunidade.elegivel ? "acao" : "neutro"}>
-              {destaque.canalRotulo}
-            </Etiqueta>
-            <Etiqueta tom={destaque.decisao === "quero-vender" ? "bom" : "neutro"}>
-              {destaque.decisaoRotulo}
-            </Etiqueta>
-          </div>
-
-          {destaque.sistema && (
-            <div className="mt-3.5">
-              <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
-                💰 O que eu vendo
-              </p>
-              <p className="mt-1 text-[14px]">{destaque.sistema}</p>
-              {destaque.modulos.length > 0 && (
-                <p className="mt-0.5 text-[12px] text-[var(--texto-3)]">
-                  {destaque.modulos.join(" · ")}
-                </p>
-              )}
-            </div>
-          )}
-
-          {destaque.dor2.tipo !== "nenhuma" && (
-            <div className="mt-3">
-              <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
-                💡 {destaque.dor2.tipo === "confirmada" ? "Dor confirmada" : "Dor provável"}
-              </p>
-              <p
-                className={`mt-1 text-[13px] ${
-                  destaque.dor2.tipo === "confirmada" ? "text-[var(--verde)]" : "text-[var(--texto-2)]"
-                }`}
-              >
-                {destaque.dor2.texto}
-              </p>
-            </div>
-          )}
-
-          <div className="mt-3.5">
-            <FatoEInferencia
-              fatos={destaque.positivos.filter((m) => m.tipo === "fato").map((m) => m.texto)}
-              inferencias={destaque.positivos.filter((m) => m.tipo === "inferencia").map((m) => m.texto)}
-            />
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Link href={`/lead/${destaque.id}`} className="btn-primario">
-              ABRIR LEAD
-            </Link>
-            {destaque.whatsappUrl && (
-              <a href={destaque.whatsappUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
-                ABRIR WHATSAPP
-              </a>
-            )}
-            {destaque.instagramUrl && (
-              <a href={destaque.instagramUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
-                VER INSTAGRAM
-              </a>
-            )}
-            {destaque.website && (
-              <a href={destaque.website} target="_blank" rel="noopener noreferrer" className="btn-secundario">
-                VER SITE
-              </a>
-            )}
-            <Link href="/materiais" className="btn-secundario">
-              COMO ABORDAR
-            </Link>
-          </div>
-        </section>
-      )}
-
-      {/* ─────────────────────── radar ─────────────────────── */}
-      <div className="mb-3">
-        <Abas
-          abas={ABAS.map((a) => ({ id: a.id, rotulo: a.rotulo, ajuda: a.ajuda, contagem: f ? a.conta(f) : undefined }))}
-          atual={aba}
-          aoTrocar={trocarAba}
-        />
-      </div>
-      <p className="mb-3 text-[12px] text-[var(--texto-3)]">
-        {ABAS.find((a) => a.id === aba)?.ajuda}
-      </p>
-
-      <div className="mb-2 flex flex-wrap items-center gap-3 text-[12.5px]">
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-[12.5px]">
         <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={soPequenos} onChange={(e) => setSoPequenos(e.target.checked)} />
-          🏪 pequenos/locais
-        </label>
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={soComSistema} onChange={(e) => setSoComSistema(e.target.checked)} />
-          🛠 com sistema aplicável
-        </label>
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={soNaoContatados} onChange={(e) => setSoNaoContatados(e.target.checked)} />
-          🚫 nunca contatados
+          <input type="checkbox" checked={soComCanal} onChange={(e) => setSoComCanal(e.target.checked)} />
+          só com canal utilizável
         </label>
         <label className="flex items-center gap-1.5">
           <input type="checkbox" checked={soNaPraca} onChange={(e) => setSoNaPraca(e.target.checked)} />
-          📍 só {praca}
+          📍 só {c?.praca?.split("/")[0] ?? "a praça"}
         </label>
         <select
           value={segmento}
@@ -415,49 +299,29 @@ export default function CentralPage() {
           className="campo w-56 py-1.5 text-[12.5px]"
         >
           <option value="">todos os nichos</option>
-          {(dados?.segmentos ?? [])
-            .slice(0, 40)
-            .map((s) => (
-              <option key={s.nome} value={s.nome}>
-                {s.nome} ({s.total})
-              </option>
-            ))}
+          {(painel?.segmentos ?? []).slice(0, 40).map((s) => (
+            <option key={s.nome} value={s.nome}>
+              {s.nome} ({s.total})
+            </option>
+          ))}
         </select>
+        <Link href="/radar" className="text-[12.5px] text-[var(--acao)] underline">
+          priorizar no radar →
+        </Link>
       </div>
 
-      <details className="mb-4">
-        <summary className="cursor-pointer text-[11.5px] text-[var(--texto-3)]">filtros avançados</summary>
-        <div className="mt-2 space-y-1.5 pl-1">
-          <label className="flex items-center gap-1.5 text-[12.5px]">
-            <input
-              type="checkbox"
-              checked={mostrarDescartados}
-              onChange={(e) => setMostrarDescartados(e.target.checked)}
-            />
-            mostrar também os descartados (rede, sem encaixe, já encerrados)
-          </label>
-          {f && f.bloqueios.length > 0 && (
-            <p className="text-[11.5px] leading-relaxed text-[var(--texto-3)]">
-              fora da operação:{" "}
-              {f.bloqueios.slice(0, 6).map((b) => `${b.quantidade} ${b.motivo.toLowerCase()}`).join(" · ")}
-            </p>
-          )}
-        </div>
-      </details>
-
-      {/* ───────────────── preparar campanha ───────────────── */}
-      {aba === "whatsapp" && (
+      {/* ─────────────── preparar prospecção ─────────────── */}
+      {prontos.length > 0 && (
         <div className="mb-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
           <p className="text-[13px]">
             <strong className="tabular-nums">{prontos.length}</strong> empresa
-            {prontos.length === 1 ? "" : "s"} pronta{prontos.length === 1 ? "" : "s"} para campanha agora
+            {prontos.length === 1 ? "" : "s"} pronta{prontos.length === 1 ? "" : "s"} para campanha
           </p>
-          {!confirmando && (
-            <button onClick={() => setConfirmando(true)} disabled={prontos.length === 0} className="btn-primario mt-2.5">
-              PREPARAR CAMPANHA
+          {!confirmando ? (
+            <button onClick={() => setConfirmando(true)} className="btn-primario mt-2.5">
+              PREPARAR PROSPECÇÃO
             </button>
-          )}
-          {confirmando && (
+          ) : (
             <div className="mt-3 rounded-[10px] bg-[var(--superficie-2)] px-3.5 py-3">
               <p className="text-[13px] font-medium">
                 Criar rascunhos para {prontos.length} empresa{prontos.length === 1 ? "" : "s"}?
@@ -467,13 +331,12 @@ export default function CentralPage() {
                 <li>✓ Rede, franquia e ramo de grande porte já foram excluídos</li>
                 <li>✓ Quem pediu para não ser contatado nunca entra</li>
                 <li>✓ Contato recente, mensagem viva e duplicata também barram</li>
-                <li>✓ Cada trava é revalidada no servidor, mensagem por mensagem</li>
                 <li className="text-[var(--texto-3)]">
-                  → Isto cria RASCUNHOS. Nada é enviado até você aprovar em /disparos.
+                  → Isto cria RASCUNHOS. Nada é enviado até você aprovar.
                 </li>
               </ul>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button onClick={criarCampanha} disabled={criando} className="btn-primario">
+                <button onClick={prepararCampanha} disabled={criando} className="btn-primario">
                   {criando ? "Criando…" : `CRIAR ${prontos.length} RASCUNHO(S)`}
                 </button>
                 <button onClick={() => setConfirmando(false)} className="btn-secundario">
@@ -486,32 +349,22 @@ export default function CentralPage() {
         </div>
       )}
 
-      {aba === "enriquecer" && f && (
-        <div className="mb-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
-          <p className="text-[13px]">
-            <strong className="tabular-nums">{f.aguardandoCanal}</strong> boas empresas sem canal de contato
-          </p>
-          <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--texto-3)]">
-            Elas têm ramo, porte e encaixe de sistema — falta o contato. As fontes gratuitas (mapa
-            aberto e site próprio) encontram poucas: a maioria destes cadastros não publica contato
-            em lugar nenhum. Esta é uma fila de trabalho priorizada, não uma promessa.
-          </p>
-        </div>
-      )}
-
       {carregando && <p className="text-[13px] text-[var(--texto-3)]">carregando…</p>}
       {!carregando && lista.length === 0 && (
         <Vazio
-          titulo="Nenhuma empresa nesta aba com os filtros atuais."
+          titulo={
+            (c?.total ?? 0) === 0
+              ? "A base está vazia."
+              : "Nenhuma empresa com esses filtros."
+          }
           detalhe={
-            aba === "melhores"
-              ? "O corte de 🔥 é estreito de propósito: exige os dois canais e classificação 'quero vender'. Tente 📱 WhatsApp ou 📸 Instagram."
-              : "Afrouxe um filtro, ou use a aba 🌐 Enriquecer para trabalhar quem ainda não tem canal."
+            (c?.total ?? 0) === 0
+              ? "Use a busca acima para trazer as primeiras. Comece por um nicho que o mapa cobre bem: oficina, restaurante, salão, pet shop."
+              : "Afrouxe um filtro, ou veja quem está sem canal em Enriquecimento."
           }
         />
       )}
 
-      {/* ─────────────────────── cartões ─────────────────────── */}
       <ul className="space-y-2.5">
         {lista.map((l) => (
           <li key={l.id} className="cartao p-4">
@@ -521,70 +374,43 @@ export default function CentralPage() {
                   {l.decisaoRotulo}
                 </p>
                 <p className="text-[15px] font-medium">{l.nome}</p>
+                <p className="mt-0.5 text-[12.5px] text-[var(--texto-3)]">
+                  {l.segmento}
+                  {l.cidade ? ` · ${l.cidade}` : ""}
+                </p>
               </div>
               <span className="text-[12px] tabular-nums text-[var(--texto-3)]">
-                comercial {l.scoreComercial} · contato {l.scoreContatabilidade} · prioridade{" "}
-                <strong className="text-[var(--acao)]">{l.probabilidade}/100</strong>
+                prioridade <strong className="text-[var(--acao)]">{l.probabilidade}/100</strong>
               </span>
             </div>
 
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              <Etiqueta>🏪 {l.segmento}</Etiqueta>
-              {l.cidade && <Etiqueta>📍 {l.cidade}</Etiqueta>}
+            <div className="mt-2 flex flex-wrap gap-1.5">
               <Etiqueta tom={l.oportunidade.elegivel ? "acao" : "neutro"}>{l.canalRotulo}</Etiqueta>
-              <Etiqueta titulo="Estado do contato — formato nunca prova conta de WhatsApp">
-                {l.contatoRotulo}
-              </Etiqueta>
-              {l.telefoneOrigem && <Etiqueta titulo="Origem do número">via {l.telefoneOrigem}</Etiqueta>}
+              {l.telefoneFormatado && <Etiqueta>📞 {l.telefoneFormatado}</Etiqueta>}
+              {l.sistema && <Etiqueta tom="bom">💰 {l.sistema}</Etiqueta>}
             </div>
 
-            {l.sistema && (
-              <p className="mt-2 text-[13px] text-[var(--texto-2)]">
-                💰 {l.sistema}
-                {l.modulos.length > 0 && (
-                  <span className="text-[var(--texto-3)]"> — {l.modulos.slice(0, 5).join(", ")}</span>
-                )}
-              </p>
-            )}
-
-            {l.dor2.tipo === "confirmada" && (
-              <p className="mt-1 text-[12.5px] text-[var(--verde)]">✅ Dor confirmada: {l.dor2.texto}</p>
-            )}
-            {l.dor2.tipo === "provavel" && (
-              <p className="mt-1 text-[12.5px] text-[var(--texto-3)]">
-                💡 Dor provável: {l.dor2.texto}
-                <span className="opacity-70"> — {l.dor2.sinais.join(", ")}</span>
-              </p>
-            )}
-
-            <div className="mt-2.5">
-              <FatoEInferencia
-                fatos={l.positivos.filter((m) => m.tipo === "fato").map((m) => m.texto)}
-                inferencias={l.positivos.filter((m) => m.tipo === "inferencia").map((m) => m.texto)}
-              />
-            </div>
-
-            {aba === "enriquecer" && (
-              <p className="mt-2 text-[12.5px]">
-                {PRIORIDADE_ENRIQ[l.enriquecimentoPrioridade ?? ""] ?? "⚪ sem prioridade"} ·{" "}
-                <span className="text-[var(--texto-3)]">{l.enriquecimentoMotivo}</span>
-              </p>
-            )}
-
-            {!l.oportunidade.elegivel && l.oportunidade.bloqueios.length > 0 && (
+            {l.oportunidade.aguardandoCanal && (
               <p className="mt-2 text-[12px] text-[var(--texto-3)]">
-                {l.oportunidade.reabreSozinha ? "⏳" : "🚫"} {l.oportunidade.bloqueios.join(" · ")}
-                {l.oportunidade.reabreSozinha && " — volta à fila sozinha"}
+                🌐 Boa empresa sem canal —{" "}
+                <Link href="/enriquecimento" className="text-[var(--acao)] underline">
+                  enriquecer
+                </Link>
               </p>
             )}
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <Link href={`/lead/${l.id}`} className="btn-secundario">
-                ABRIR LEAD
+                ABRIR
               </Link>
               {l.whatsappUrl && (
                 <a href={l.whatsappUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
                   WHATSAPP
+                </a>
+              )}
+              {l.instagramUrl && (
+                <a href={l.instagramUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
+                  @{l.instagramUsername}
                 </a>
               )}
               {l.website && (
@@ -592,54 +418,10 @@ export default function CentralPage() {
                   SITE
                 </a>
               )}
-              {(l.canal === "instagram" || l.canal === "ambos") && l.instagramUrl && (
-                <>
-                  <a href={l.instagramUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
-                    @{l.instagramUsername}
-                  </a>
-                  {STATUS_IG.map((s) => (
-                    <button
-                      key={s.valor}
-                      onClick={() =>
-                        void marcarInstagram(l.id, l.instagramStatus === s.valor ? "nao-abordado" : s.valor)
-                      }
-                      className={`rounded-[10px] px-3 py-1.5 text-[12px] transition ${
-                        l.instagramStatus === s.valor
-                          ? "bg-[var(--acao-fraco)] font-medium text-[var(--acao)]"
-                          : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
-                      }`}
-                    >
-                      {s.rotulo}
-                    </button>
-                  ))}
-                </>
-              )}
             </div>
           </li>
         ))}
       </ul>
-
-      {/* ──────────── funil de venda: onde se perde gente ──────────── */}
-      {com && com.funil.length > 0 && (
-        <section className="cartao mt-6 p-5">
-          <p className="text-[15px] font-semibold">Funil de venda</p>
-          <p className="mt-0.5 mb-3 text-[12px] text-[var(--texto-3)]">
-            Depois da abordagem. A distância entre dois degraus é onde a prospecção perde gente.
-          </p>
-          <div className="space-y-2">
-            {com.funil.map((e) => (
-              <Barra key={e.etapa} rotulo={e.etapa} valor={e.quantos} de={com.funil[0].quantos || 1} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {f && (
-        <p className="mt-6 text-[11.5px] text-[var(--texto-3)]">
-          base completa: {f.total} cadastros · {f.comPotencialDeSolucao} com potencial de solução ·{" "}
-          {f.oportunidadesReais} abordáveis hoje
-        </p>
-      )}
     </main>
   );
 }
