@@ -1,18 +1,17 @@
 import { eq, inArray } from "drizzle-orm";
 import { db, leads, mensagens, campanhas, configuracoes, type Lead } from "@/lib/db";
-import { avaliarContato, enviadasHoje, lerConfig, type Config } from "@/lib/fila";
+import { enviadasHoje, lerConfig, type Config } from "@/lib/fila";
 import { estadoIntegracao } from "@/lib/integracao";
 import { estimarDuracao } from "@/lib/facetas";
 import { resolverSaudacao } from "@/lib/saudacao";
 import { registrar, textoPara } from "@/lib/campanha";
 import { avaliar } from "@/lib/oportunidade";
 import { pontuar } from "@/lib/pontuacao";
-import { canalDoLead, motivoDeDescarte, ROTULO_DESCARTE } from "@/lib/canais";
 import { probabilidadeComercial, ORDEM_CLASSIFICACAO } from "@/lib/probabilidade";
 import { alcanceDoLead } from "@/lib/territorio";
 import { deduplicar } from "@/lib/dedup";
 import { categoriaSingular } from "@/lib/categoria-nome";
-import type { Etapa } from "@/lib/db/schema";
+import { avaliarOportunidadeComercial } from "@/lib/oportunidade-comercial";
 
 /**
  * Disparo de um clique.
@@ -36,9 +35,6 @@ import type { Etapa } from "@/lib/db/schema";
  * mensagem sem graça. Pular as travas acima custa o número. São coisas
  * diferentes e só a primeira foi dispensada.
  */
-
-/** Etapas anteriores ao primeiro contato. Depois disso a conversa é humana. */
-const ETAPAS_ANTES_DO_CONTATO: Etapa[] = ["novo", "analisado", "qualificado"];
 
 export type Alvo = { lead: Lead; texto: string };
 
@@ -99,62 +95,39 @@ async function elegiveis(
 
   for (const lead of base) {
     /**
-     * Lead que já saiu do começo do funil não entra em disparo em massa.
+     * ═══ A MESMA AVALIAÇÃO QUE A TELA MOSTRA ═══
      *
-     * `avaliarContato` sozinho não pega este caso: um lead movido à mão para
-     * "reunião" que nunca recebeu mensagem pelo sistema passaria por todas as
-     * travas — e receberia uma abordagem de primeiro contato no meio de uma
-     * negociação já em andamento.
+     * Este bloco já foi a correção de um buraco real: o painel aplicava porte,
+     * encaixe de sistema e telefone fixo, e a CAMPANHA vinha por aqui sem
+     * aplicar nada disso — dos 61 leads que o botão oferecia, 48 (79%) eram
+     * telefone fixo, 3 não tinham sistema aplicável e 2 eram rede.
+     *
+     * A correção da vez foi copiar as regras para cá. Copiar resolve o dia e
+     * cria o problema seguinte: duas listas que precisam ser editadas juntas
+     * para sempre, e a que esquecerem é a que manda mensagem errada. Agora as
+     * duas perguntam para `avaliarOportunidadeComercial`, e a divergência
+     * deixa de ser possível em vez de deixar de acontecer.
      */
-    if (!ETAPAS_ANTES_DO_CONTATO.includes(lead.etapa)) {
-      recusar("Já está adiante no funil.");
-      continue;
-    }
+    const o = avaliarOportunidadeComercial(lead, {
+      possivelDuplicata: duplicados.has(lead.id),
+      cfg,
+      historico: porLead.get(lead.id) ?? [],
+    });
 
     /**
-     * ═══ A FILA DE WHATSAPP ═══
+     * Instagram vem antes de tudo porque não é recusa comercial.
      *
-     * Este bloco é a correção do buraco que a auditoria encontrou: o painel
-     * aplicava porte, encaixe de sistema e telefone fixo, mas a CAMPANHA vinha
-     * por aqui e não aplicava nada disso. Medido antes da correção: dos 61
-     * leads que o botão oferecia, 48 (79%) eram telefone fixo, 3 não tinham
-     * sistema aplicável e 2 eram rede.
-     *
-     * A ordem é a mais barata primeiro, e cada recusa tem motivo próprio para
-     * a tela conseguir explicar o funil em vez de só encolher.
+     * O lead pode ser ótimo — o que ele não tem é porta automática. Cair no
+     * balde genérico de "não elegível" o esconderia da fila manual, que é
+     * exatamente onde ele deveria estar.
      */
-    const canal = canalDoLead(lead);
-    if (canal === "instagram") {
-      // Existe, é bom lead — mas é abordagem MANUAL. Nunca entra em campanha.
+    if (o.canal === "instagram") {
       recusar("Só Instagram — vai para a fila manual.");
       continue;
     }
-    if (canal === "sem-canal") {
-      recusar("Sem WhatsApp e sem Instagram.");
-      continue;
-    }
 
-    const descarte = motivoDeDescarte(lead);
-    if (descarte) {
-      recusar(`${ROTULO_DESCARTE[descarte]}.`);
-      continue;
-    }
-
-    if (duplicados.has(lead.id)) {
-      recusar("Possível duplicata de outro cadastro.");
-      continue;
-    }
-
-    /**
-     * `paraNovaCampanha: true` — a mesma trava que o painel usa. Sem ela, o
-     * telefone fixo passava direto para a campanha e só voltava como erro
-     * "não tem WhatsApp" depois de queimar uma vaga do teto diário.
-     */
-    const check = avaliarContato(lead, cfg, porLead.get(lead.id) ?? [], {
-      paraNovaCampanha: true,
-    });
-    if (!check.pode) {
-      recusar(check.motivo);
+    if (!o.elegivel) {
+      recusar(`${o.bloqueios[0]}.`);
       continue;
     }
 

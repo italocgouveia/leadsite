@@ -31,6 +31,7 @@ import {
   instagramDoLead,
   motivoDeDescarte,
   ehAcionavel,
+  temSiteProprio,
   ROTULO_CANAL,
   ROTULO_DESCARTE,
   type Canal,
@@ -45,12 +46,16 @@ import {
   type MotivoGaveta,
   type EstadoContato,
 } from "@/lib/enriquecimento";
-import { validarTelefone, telefoneDoLead } from "@/lib/telefone";
+import { validarTelefone, telefoneDoLead, linkWhatsapp } from "@/lib/telefone";
 import { SEM_SITE } from "@/lib/places/audit";
 import { avaliarSistema } from "@/lib/sistemas";
 import { categoriaSingular } from "@/lib/categoria-nome";
 import { nichoPrioritario } from "@/lib/nichos-locais";
 import type { Etapa } from "@/lib/db/schema";
+import {
+  avaliarOportunidadeComercial,
+  type OportunidadeComercial,
+} from "@/lib/oportunidade-comercial";
 
 /**
  * A camada de INTELIGÊNCIA COMERCIAL de /disparos: quem vale a pena abordar,
@@ -128,6 +133,28 @@ export type FiltroOportunidade = {
    *   acionaveis qualquer canal + o que vender
    */
   fila?: "whatsapp" | "instagram" | "ambos" | "acionaveis";
+
+  /**
+   * A ABA do Modo Caça. É o filtro que a tela de caça usa.
+   *
+   *   melhores    🔥 os dois canais, classificação "quero vender"
+   *   whatsapp    📱 pode entrar em campanha automática hoje
+   *   instagram   📸 abordagem manual, com status próprio
+   *   enriquecer  🔍 bom negócio sem canal — trabalho, não descarte
+   *
+   * `enriquecer` é a única que aceita lead NÃO elegível, de propósito: a aba
+   * existe justamente para trabalhar quem ainda não dá para abordar.
+   */
+  aba?: "melhores" | "whatsapp" | "instagram" | "enriquecer";
+  /**
+   * Tirar da lista o que a avaliação comercial descartou.
+   *
+   * Desligado por padrão — e é uma escolha, não descuido. Este motor também
+   * alimenta o painel de /disparos, que precisa contar a base inteira para
+   * explicar os descartes. Quem liga isto é a tela de caça, onde "⚪ não
+   * prioritário" só atrapalha quem veio vender.
+   */
+  esconderDescartados?: boolean;
 };
 
 export type LeadOportunidade = {
@@ -145,6 +172,11 @@ export type LeadOportunidade = {
   temWhatsapp: boolean;
   temInstagram: boolean;
   temSite: boolean;
+  /** A URL em si, para o botão ABRIR SITE. Null quando não é site próprio. */
+  website: string | null;
+  /** wa.me pronto. Abrir conversa à mão NÃO é disparo automático. */
+  whatsappUrl: string | null;
+  telefoneFormatado: string | null;
   nota: number | null;
   avaliacoes: number | null;
   /** Palpite determinístico do sistema para o ramo. A IA pode discordar. */
@@ -231,7 +263,30 @@ export type LeadOportunidade = {
   scoreComercial: number;
   scoreContatabilidade: number;
   scoreFinal: number;
+
+  // ───────── a avaliação única ─────────
+  /**
+   * O VEREDITO COMERCIAL, vindo de `avaliarOportunidadeComercial`.
+   *
+   * Todos os campos acima continuam existindo porque a tela usa cada um deles
+   * para explicar o veredito. O que mudou é quem DECIDE: antes cada tela
+   * combinava score, canal e etapa do seu próprio jeito, e por isso o painel e
+   * a campanha discordavam. Agora todas leem daqui.
+   */
+  oportunidade: {
+    /** Dá para trabalhar HOJE. É o número que a tela deve liderar. */
+    elegivel: boolean;
+    /** O que impede — vazio quando elegível. Nunca fica escondido. */
+    bloqueios: string[];
+    /** Tem sistema aplicável, com ou sem canal. NÃO é oportunidade. */
+    temPotencialDeSolucao: boolean;
+    /** Bom negócio sem porta de entrada: alvo do enriquecimento. */
+    aguardandoCanal: boolean;
+    /** Barrada só pelo relógio — volta sozinha. */
+    reabreSozinha: boolean;
+  };
 };
+
 
 export type SegmentoResumo = {
   nome: string;
@@ -336,7 +391,46 @@ export type ResultadoOportunidades = {
     potencialAsemTelefone: number;
     potencialBsemTelefone: number;
   };
+  /**
+   * AS DUAS PERGUNTAS, SEPARADAS — o coração desta tela.
+   *
+   * Enquanto eram uma coisa só, o painel dizia "907 com potencial forte" e o
+   * vendedor abria a campanha para encontrar 12. Os dois números estavam
+   * certos; o que estava errado era chamá-los pelo mesmo nome.
+   *
+   *   POTENCIAL DE SOLUÇÃO   existe sistema que serve para o ramo dela
+   *   OPORTUNIDADE COMERCIAL existe sistema E dá para falar com ela hoje
+   *
+   * A diferença entre os dois não é perda: é a fila de enriquecimento. Por
+   * isso `aguardandoCanal` aparece aqui do lado, com nome de trabalho a fazer
+   * e não de estatística.
+   */
+  funil: {
+    /** Base bruta. Informação de contexto, nunca a manchete. */
+    total: number;
+    /** Tem sistema aplicável. NÃO significa que dá para abordar. */
+    comPotencialDeSolucao: number;
+    /** Passa em tudo: canal, solução, funil, opt-out. A manchete. */
+    oportunidadesReais: number;
+    /** Destas, quantas podem entrar numa campanha automática hoje. */
+    prontasParaWhatsapp: number;
+    /** E quantas são abordagem manual pelo Instagram. */
+    prontasParaInstagram: number;
+    /** As melhores: os dois canais e classificação 🔥. */
+    melhores: number;
+    /** Potencial sim, canal não — o tamanho real da fila de enriquecimento. */
+    aguardandoCanal: number;
+    /**
+     * Boas, e barradas só pelo relógio: janela de recontato, mensagem ainda
+     * na fila. Voltam sozinhas. É o número que impede a tela de dar a
+     * impressão de que a base secou quando ela só está descansando.
+     */
+    reabremSozinhas: number;
+    /** Por que as demais não são oportunidade, em ordem de tamanho. */
+    bloqueios: { motivo: string; quantidade: number }[];
+  };
 };
+
 
 /**
  * Nota mínima para entrar em "pronto para prospecção".
@@ -365,6 +459,8 @@ type ContextoFiltro = {
   pronto: (l: Lead) => boolean;
   jaContatado: (l: Lead) => boolean;
   ctx: (l: Lead) => ContextoLead;
+  /** A avaliacao comercial unica, memoizada. Ver lib/oportunidade-comercial. */
+  avaliar: (l: Lead) => OportunidadeComercial;
 };
 
 function passaNosFiltros(lead: Lead, f: FiltroOportunidade, ajuda: ContextoFiltro): boolean {
@@ -402,8 +498,28 @@ function passaNosFiltros(lead: Lead, f: FiltroOportunidade, ajuda: ContextoFiltr
     const e = avaliarSistema(lead);
     if (!e.serve || e.modulos.length < 4) return false;
   }
+  if (f.aba) {
+    const o = ajuda.avaliar(lead);
+    if (f.aba === "enriquecer") {
+      /** A fila de trabalho: bom negócio, sem porta de entrada. */
+      if (!o.aguardandoCanal) return false;
+    } else {
+      if (!o.elegivel) return false;
+      if (f.aba === "melhores" && (o.canal !== "ambos" || o.classificacao !== "quero-vender")) {
+        return false;
+      }
+      if (f.aba === "whatsapp" && o.canal !== "whatsapp" && o.canal !== "ambos") return false;
+      if (f.aba === "instagram" && o.canal !== "instagram" && o.canal !== "ambos") return false;
+    }
+  }
+  if (f.esconderDescartados) {
+    const o = ajuda.avaliar(lead);
+    /** Sem canal mas com solução continua visível: é fila, não lixo. */
+    if (!o.elegivel && !o.aguardandoCanal) return false;
+  }
   return true;
 }
+
 
 /**
  * Monta o painel de oportunidades para um filtro.
@@ -454,6 +570,27 @@ export async function oportunidades(
     if (atual) atual.push(m);
     else porLead.set(m.leadId, [m]);
   }
+
+  /**
+   * A AVALIAÇÃO COMERCIAL ÚNICA — memoizada por lead.
+   *
+   * Memoizar não é micro-otimização aqui: `passaNosFiltros` roda por lead e
+   * por filtro, e cada avaliação puxa porte, encaixe de sistema, canal e
+   * território. Numa base de mil leads isso vira dezenas de milhares de
+   * recálculos idênticos a cada tecla. O `Map` os transforma em um por lead.
+   */
+  const cache = new Map<string, OportunidadeComercial>();
+  const avaliar = (lead: Lead): OportunidadeComercial => {
+    const pronto = cache.get(lead.id);
+    if (pronto) return pronto;
+    const o = avaliarOportunidadeComercial(lead, {
+      possivelDuplicata: duplicados.has(lead.id),
+      cfg,
+      historico: porLead.get(lead.id) ?? [],
+    });
+    cache.set(lead.id, o);
+    return o;
+  };
 
   /** Mesma pergunta que a fila fará depois. Nunca uma versão mais frouxa. */
   const elegivel = (lead: Lead): { pode: true } | { pode: false; motivo: string } => {
@@ -603,6 +740,44 @@ export async function oportunidades(
     };
   };
 
+  /**
+   * O FUNIL — as duas perguntas separadas.
+   *
+   * Contado sobre a base inteira, sem filtro: é o retrato da operação, e não
+   * pode mudar porque alguém marcou um nicho na tela.
+   */
+  const resumoFunil = () => {
+    const todos = base.map(avaliar);
+    const reais = todos.filter((o) => o.elegivel);
+    const contagem = new Map<string, number>();
+    for (const o of todos) {
+      if (o.elegivel) continue;
+      /**
+       * Só o PRIMEIRO bloqueio conta. Um lead sem canal e sem sistema tem dois
+       * problemas, mas somar os dois faria a lista de causas passar do total
+       * de leads — e um diagnóstico que não fecha não orienta trabalho nenhum.
+       */
+      const m = o.bloqueios[0] ?? "Sem motivo registrado";
+      contagem.set(m, (contagem.get(m) ?? 0) + 1);
+    }
+    return {
+      total: base.length,
+      comPotencialDeSolucao: todos.filter((o) => o.temPotencialDeSolucao).length,
+      oportunidadesReais: reais.length,
+      prontasParaWhatsapp: reais.filter((o) => o.canal === "whatsapp" || o.canal === "ambos")
+        .length,
+      prontasParaInstagram: reais.filter((o) => o.canal === "instagram" || o.canal === "ambos")
+        .length,
+      melhores: reais.filter((o) => o.canal === "ambos" && o.classificacao === "quero-vender")
+        .length,
+      aguardandoCanal: todos.filter((o) => o.aguardandoCanal).length,
+      reabremSozinhas: todos.filter((o) => o.bloqueioTemporario).length,
+      bloqueios: [...contagem.entries()]
+        .map(([motivo, quantidade]) => ({ motivo, quantidade }))
+        .sort((a, b) => b.quantidade - a.quantidade),
+    };
+  };
+
   const resumoEnriquecimento = () => {
     const analises = base.map((l) => ({ l, e: precisaEnriquecer(l) }));
     const semTel = analises.filter(({ l }) => !validarTelefone(telefoneDoLead(l)));
@@ -644,6 +819,7 @@ export async function oportunidades(
 
   const ajuda: ContextoFiltro = {
     pronto,
+    avaliar,
     // "Já contatado" = tem QUALQUER mensagem no histórico, enviada ou não.
     jaContatado: (l) => (porLead.get(l.id)?.length ?? 0) > 0,
     ctx: ctxDe,
@@ -710,6 +886,7 @@ export async function oportunidades(
     canais: resumoCanais(),
     motivosD: motivosD(),
     enriquecimento: resumoEnriquecimento(),
+    funil: resumoFunil(),
     leads: escolhidos.map(({ lead, p, nivel }) => {
       const encaixe = avaliarSistema(lead);
       const classe = classificarPorte(lead);
@@ -730,6 +907,9 @@ export async function oportunidades(
         temWhatsapp: Boolean(lead.whatsapp),
         temInstagram: Boolean(lead.instagram),
         temSite: Boolean(lead.website),
+        website: temSiteProprio(lead) ? lead.website : null,
+        whatsappUrl: linkWhatsapp(telefoneDoLead(lead)),
+        telefoneFormatado: validarTelefone(telefoneDoLead(lead))?.formatado ?? null,
         nota: lead.nota,
         avaliacoes: lead.avaliacoes,
         sistema: encaixe.serve ? encaixe.sistema : null,
@@ -780,6 +960,13 @@ export async function oportunidades(
         scoreComercial: sc.comercial,
         scoreContatabilidade: sc.contatabilidade,
         scoreFinal: sc.final,
+        oportunidade: {
+          elegivel: avaliar(lead).elegivel,
+          bloqueios: avaliar(lead).bloqueios,
+          temPotencialDeSolucao: avaliar(lead).temPotencialDeSolucao,
+          aguardandoCanal: avaliar(lead).aguardandoCanal,
+          reabreSozinha: avaliar(lead).bloqueioTemporario,
+        },
       };
     }),
   };

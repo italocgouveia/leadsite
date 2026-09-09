@@ -29,7 +29,20 @@ import type { ContextoLead } from "@/lib/pontuacao";
  * abordagem depois, mas quem é bom lead não pode depender de sorteio.
  */
 
-export type Motivo = { texto: string; pontos: number };
+/**
+ * Um motivo, e se ele é OBSERVAÇÃO ou CONCLUSÃO.
+ *
+ * A distinção é do §7 da operação e não pode ser feita na tela: quem sabe se
+ * "Instagram comercial (@x)" é fato e "Provável pequeno/local" é hipótese é
+ * este arquivo, que os produziu. Deixar a tela adivinhar pelo texto é como
+ * uma inferência acaba apresentada como fato na frente do cliente.
+ *
+ *   fato        a empresa publicou isso — dá para citar numa conversa
+ *   inferencia  nós concluímos isso — não se afirma antes de confirmar
+ */
+export type TipoMotivo = "fato" | "inferencia";
+
+export type Motivo = { texto: string; pontos: number; tipo: TipoMotivo };
 
 export type Classificacao = "quero-vender" | "vale-abordar" | "nao-prioritario";
 
@@ -131,8 +144,10 @@ const MAXIMO = Object.values(PESO).reduce((s, v) => s + v, 0) - PESO.regiao;
 export function probabilidadeComercial(lead: Lead, ctx: ContextoLead = {}): Probabilidade {
   const positivos: Motivo[] = [];
   const negativos: Motivo[] = [];
-  const mais = (texto: string, pontos: number) => positivos.push({ texto, pontos });
-  const menos = (texto: string, pontos: number) => negativos.push({ texto, pontos: -pontos });
+  const mais = (texto: string, pontos: number, tipo: TipoMotivo) =>
+    positivos.push({ texto, pontos, tipo });
+  const menos = (texto: string, pontos: number, tipo: TipoMotivo) =>
+    negativos.push({ texto, pontos: -pontos, tipo });
 
   const canal = canalDoLead(lead);
   const classe = classificarPorte(lead);
@@ -141,61 +156,65 @@ export function probabilidadeComercial(lead: Lead, ctx: ContextoLead = {}): Prob
   const alcance = alcanceDoLead(lead);
 
   // ---------- 1. praça ----------
-  if (alcance === "local") mais(`Em ${PRACA.cidade} — dá para visitar`, PESO.praca);
-  else if (alcance === "regional") mais(`Região do DDD ${PRACA.ddd}`, PESO.regiao);
-  else menos(`Fora da praça (${lead.cidade ?? "cidade desconhecida"})`, PENALIDADE.foraDaPraca);
+  if (alcance === "local") mais(`Em ${PRACA.cidade} — dá para visitar`, PESO.praca, "fato");
+  else if (alcance === "regional") mais(`Região do DDD ${PRACA.ddd}`, PESO.regiao, "fato");
+  else menos(`Fora da praça (${lead.cidade ?? "cidade desconhecida"})`, PENALIDADE.foraDaPraca, "fato");
 
   // ---------- 2. perfil de negócio ----------
   if (classe.rede) {
-    menos(`Rede ou franquia: ${classe.motivosRede[0]}`, PENALIDADE.rede);
+    menos(`Rede ou franquia: ${classe.motivosRede[0]}`, PENALIDADE.rede, "fato");
   } else if (ehCategoriaDeGrandePorte(lead.categoria)) {
-    menos(`Ramo de grande porte (${lead.categoria})`, PENALIDADE.grandePorte);
+    menos(`Ramo de grande porte (${lead.categoria})`, PENALIDADE.grandePorte, "fato");
   } else if (classe.porteEstimado === "pequeno") {
-    mais("Provável pequeno/local", PESO.pequenoLocal);
+    mais("Provável pequeno/local", PESO.pequenoLocal, "inferencia");
   } else {
     /** Não é penalidade: é falta de dado, e a tela precisa dizer isso. */
-    negativos.push({ texto: "Porte não confirmado", pontos: 0 });
+    negativos.push({ texto: "Porte não confirmado", pontos: 0, tipo: "inferencia" });
   }
 
   // ---------- 3. aderência à solução ----------
   if (encaixe.serve) {
-    mais(`Sistema aplicável: ${encaixe.sistema}`, PESO.sistemaAplicavel);
+    mais(`Sistema aplicável: ${encaixe.sistema}`, PESO.sistemaAplicavel, "inferencia");
   } else {
-    menos("Nenhuma solução da ICG Tech se encaixa no ramo", PENALIDADE.semSistema);
+    menos("Nenhuma solução da ICG Tech se encaixa no ramo", PENALIDADE.semSistema, "inferencia");
   }
 
   // ---------- 4. sinais de operação ----------
-  if (nicho?.recorrente) mais("Operação recorrente — o cliente volta", PESO.operacaoRecorrente);
+  if (nicho?.recorrente) mais("Operação recorrente — o cliente volta", PESO.operacaoRecorrente, "inferencia");
   if (encaixe.serve && encaixe.modulos.length >= 4) {
-    mais(`Processo evidente: ${encaixe.modulos.slice(0, 4).join(", ")}`, PESO.processoEvidente);
+    mais(`Processo evidente: ${encaixe.modulos.slice(0, 4).join(", ")}`, PESO.processoEvidente, "inferencia");
   }
 
   // ---------- 5. canais ----------
-  if (canal === "whatsapp" || canal === "ambos") mais("WhatsApp disponível", PESO.whatsapp);
+  if (canal === "whatsapp" || canal === "ambos") mais("WhatsApp disponível", PESO.whatsapp, "fato");
   const ig = instagramDoLead(lead);
-  if (ig) mais(`Instagram comercial (@${ig.username})`, PESO.instagram);
-  if (canal === "sem-canal") menos("Sem WhatsApp e sem Instagram", PENALIDADE.semCanal);
+  if (ig) mais(`Instagram comercial (@${ig.username})`, PESO.instagram, "fato");
+  if (canal === "site") {
+    /** Tem site, e é por ele que o canal vai aparecer. Não é penalidade cheia. */
+    negativos.push({ texto: "Só site — canal de conversa ainda não encontrado", pontos: 0, tipo: "fato" });
+  }
+  if (canal === "sem-canal") menos("Sem WhatsApp e sem Instagram", PENALIDADE.semCanal, "fato");
 
   // ---------- 6. atividade ----------
-  if (lead.website || lead.instagram) mais("Presença digital ativa", PESO.presencaDigital);
+  if (lead.website || lead.instagram) mais("Presença digital ativa", PESO.presencaDigital, "fato");
   if ((lead.avaliacoes ?? 0) >= 10 || lead.horarios) {
-    mais("Sinais de operação em funcionamento", PESO.atividadeRecente);
+    mais("Sinais de operação em funcionamento", PESO.atividadeRecente, "fato");
   }
 
   const osm = lead.dadosOsm ?? {};
   if (Object.keys(osm).some((k) => /^(disused|abandoned|was|removed)/i.test(k))) {
-    menos("Marcado como extinto no mapa", PENALIDADE.inativo);
+    menos("Marcado como extinto no mapa", PENALIDADE.inativo, "fato");
   }
   if (ctx.possivelDuplicata) {
-    menos("Possível duplicata de outro cadastro", PENALIDADE.duplicado);
+    menos("Possível duplicata de outro cadastro", PENALIDADE.duplicado, "inferencia");
   }
 
   // ---------- avisos que não pontuam, mas o vendedor precisa ver ----------
-  if (canal !== "sem-canal" && !lead.telefone) {
-    negativos.push({ texto: "Telefone ainda não confirmado", pontos: 0 });
+  if (canal !== "sem-canal" && canal !== "site" && !lead.telefone) {
+    negativos.push({ texto: "Telefone ainda não confirmado", pontos: 0, tipo: "fato" });
   }
   if (lead.instagram && !ig) {
-    negativos.push({ texto: "Link de Instagram não é um perfil utilizável", pontos: 0 });
+    negativos.push({ texto: "Link de Instagram não é um perfil utilizável", pontos: 0, tipo: "fato" });
   }
 
   const bruto =
@@ -214,7 +233,7 @@ export function probabilidadeComercial(lead: Lead, ctx: ContextoLead = {}): Prob
 
   if (desqualificado || !encaixe.serve || classe.rede || ehCategoriaDeGrandePorte(lead.categoria)) {
     classificacao = "nao-prioritario";
-  } else if (canal === "sem-canal") {
+  } else if (canal === "sem-canal" || canal === "site") {
     // Bom negócio, sem porta de entrada. Vira alvo de enriquecimento, não de agenda.
     classificacao = "nao-prioritario";
   } else if (alcance !== "fora" && classe.porteEstimado === "pequeno" && pontos >= 60) {

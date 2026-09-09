@@ -163,12 +163,27 @@ export async function buscarEGravar(
     .onConflictDoUpdate({
       target: leads.placeId,
       set: {
-        telefone: sql`excluded.telefone`,
-        whatsapp: sql`excluded.whatsapp`,
-        website: sql`excluded.website`,
-        instagram: sql`excluded.instagram`,
-        facebook: sql`excluded.facebook`,
-        email: sql`excluded.email`,
+        /**
+         * ═══ REBUSCAR NUNCA PODE APAGAR CONTATO ═══
+         *
+         * Estes campos eram `excluded.X` direto, e isso destrói dado: quando o
+         * mapa não publica telefone, `excluded.telefone` é NULL, e rodar a
+         * mesma busca de novo zerava o número que já estava no cadastro — o
+         * enriquecido inclusive, que custou varredura de site e validação de
+         * DDD para entrar ali.
+         *
+         * `coalesce(excluded, atual)` mantém a atualização quando a fonte tem
+         * algo a dizer e o silêncio dela deixa de ser uma ordem de apagar.
+         * Vale para todos os canais: `whatsapp` acompanha o telefone porque é
+         * derivado dele, e desencontrar os dois criaria link para um número
+         * que o cadastro não tem mais.
+         */
+        telefone: sql`coalesce(excluded.telefone, ${leads.telefone})`,
+        whatsapp: sql`coalesce(excluded.whatsapp, ${leads.whatsapp})`,
+        website: sql`coalesce(excluded.website, ${leads.website})`,
+        instagram: sql`coalesce(excluded.instagram, ${leads.instagram})`,
+        facebook: sql`coalesce(excluded.facebook, ${leads.facebook})`,
+        email: sql`coalesce(excluded.email, ${leads.email})`,
         // Dados brutos do mapa: sempre atualiza, é só espelho do OSM.
         dadosOsm: sql`excluded.dados_osm`,
         // Horário NÃO sobrescreve: se você digitou o horário real do dono,

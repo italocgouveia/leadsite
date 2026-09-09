@@ -2,84 +2,116 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Indicadores, Abas, Etiqueta, Barra, FatoEInferencia, Vazio } from "@/components/central";
 
 /**
- * 🎯 MODO CAÇA — a tela operacional de prospecção.
+ * 🎯 CENTRAL DE PROSPECÇÃO — o cockpit.
  *
- * Junta as três filas comerciais num lugar só, porque na prática são o mesmo
- * trabalho visto por canais diferentes:
+ * A pergunta que esta tela responde, sem exigir navegação nenhuma:
  *
- *   🔥 AMBOS      WhatsApp + Instagram. Olhar primeiro.
- *   📱 WHATSAPP   prontos para entrar em campanha automática.
- *   📸 INSTAGRAM  abordagem manual, com ou sem WhatsApp.
+ *   quem eu abordo agora · por qual canal · o que eu vendo para ela ·
+ *   por que ela · o que eu falo · e o que faço se responder
  *
- * Reaproveita `/api/disparo/oportunidades` — o MESMO motor do painel e da
- * campanha. Nenhuma regra de seleção mora aqui: uma segunda régua na tela
- * divergiria da fila no primeiro ajuste, que é justamente o defeito que esta
- * reestruturação veio corrigir.
+ * O QUE ELA NÃO FAZ
  *
- * Nada nesta tela envia mensagem. O botão de campanha cria RASCUNHOS pela rota
- * que /disparos já usa; o envio continua sendo decisão separada, com aprovação.
+ * Não lidera com o tamanho da base. "1.293 leads" é verdade e não serve para
+ * nada: diz quantas linhas existem no banco, não com quantas empresas dá para
+ * falar. E não tem régua própria — quem decide quem é oportunidade é
+ * `avaliarOportunidadeComercial`, a mesma função que a campanha consulta.
+ *
+ * DUAS APIS, NENHUMA NOVA
+ *
+ * `/api/disparo/oportunidades` traz o funil de aquisição e os leads;
+ * `/api/comercial/resumo` traz o funil de VENDA (abordados → responderam →
+ * proposta) e os follow-ups. São perguntas diferentes sobre o mesmo negócio,
+ * e a Central é o único lugar onde as duas aparecem juntas.
+ *
+ * Nada aqui envia mensagem. O botão de campanha cria RASCUNHOS.
  */
 
-type Fila = "ambos" | "whatsapp" | "instagram";
+type Aba = "melhores" | "whatsapp" | "instagram" | "enriquecer";
 
-type LeadCaca = {
+type Motivo = { texto: string; pontos: number; tipo: "fato" | "inferencia" };
+
+type LeadCentral = {
   id: string;
   nome: string;
   segmento: string;
   cidade: string | null;
-  canal: "ambos" | "whatsapp" | "instagram" | "sem-canal";
+  canal: "ambos" | "whatsapp" | "instagram" | "site" | "sem-canal";
   canalRotulo: string;
   instagramUsername: string | null;
   instagramUrl: string | null;
   instagramStatus: string | null;
+  website: string | null;
+  whatsappUrl: string | null;
+  telefoneFormatado: string | null;
   sistema: string | null;
-  dor: string | null;
+  modulos: string[];
   porteEstimadoRotulo: string;
   scoreComercial: number;
   scoreContatabilidade: number;
-  scoreFinal: number;
-  porQue: { criterio: string; pontos: number }[];
-  prontoParaProspeccao: boolean;
-  alcance: "local" | "regional" | "fora";
   alcanceRotulo: string;
   decisao: "quero-vender" | "vale-abordar" | "nao-prioritario";
   decisaoRotulo: string;
   probabilidade: number;
-  positivos: { texto: string; pontos: number }[];
-  negativos: { texto: string; pontos: number }[];
+  positivos: Motivo[];
+  negativos: Motivo[];
   dor2:
     | { tipo: "confirmada"; texto: string }
     | { tipo: "provavel"; texto: string; sinais: string[] }
     | { tipo: "nenhuma" };
   temSite: boolean;
-  semSiteConfirmado: boolean;
-};
-
-type Resposta = {
-  leads: LeadCaca[];
-  canais: {
-    acionaveis: number;
-    whatsapp: number;
-    instagram: number;
-    ambos: number;
-    semCanal: number;
-    total: number;
-    pequenosLocais: number;
-    comSistemaAplicavel: number;
-    naPraca: number;
-    naRegiao: number;
-    foraDaPraca: number;
-    praca: string;
-    descartes: { motivo: string; rotulo: string; quantidade: number }[];
+  contatoRotulo: string;
+  telefoneOrigem: string | null;
+  enriquecimentoPrioridade: "alta" | "media" | "baixa" | null;
+  enriquecimentoMotivo: string;
+  oportunidade: {
+    elegivel: boolean;
+    bloqueios: string[];
+    temPotencialDeSolucao: boolean;
+    aguardandoCanal: boolean;
+    reabreSozinha: boolean;
   };
 };
 
-const ABAS: { id: Fila; rotulo: string; ajuda: string }[] = [
-  { id: "ambos", rotulo: "🔥 Melhores", ajuda: "WhatsApp + Instagram — olhe primeiro" },
-  { id: "whatsapp", rotulo: "📱 WhatsApp", ajuda: "podem entrar em campanha automática" },
-  { id: "instagram", rotulo: "📸 Instagram", ajuda: "abordagem manual, uma a uma" },
+type Funil = {
+  total: number;
+  comPotencialDeSolucao: number;
+  oportunidadesReais: number;
+  prontasParaWhatsapp: number;
+  prontasParaInstagram: number;
+  melhores: number;
+  aguardandoCanal: number;
+  reabremSozinhas: number;
+  bloqueios: { motivo: string; quantidade: number }[];
+};
+
+type Resposta = {
+  leads: LeadCentral[];
+  funil: Funil;
+  canais: { praca: string };
+  segmentos: { nome: string; total: number }[];
+};
+
+/** O funil de VENDA, de /api/comercial/resumo. Outro assunto, outra API. */
+type Comercial = {
+  indicadores: {
+    abordados: number;
+    responderam: number;
+    interessados: number;
+    propostas: number;
+    ganhos: number;
+  };
+  funil: { etapa: string; quantos: number; taxa: number | null }[];
+  followUps: { id: string; leadId: string; lead: string; motivo?: string | null }[];
+};
+
+const ABAS: { id: Aba; rotulo: string; ajuda: string; conta: (f: Funil) => number }[] = [
+  { id: "melhores", rotulo: "🔥 Melhores", ajuda: "os dois canais e vale vender", conta: (f) => f.melhores },
+  { id: "whatsapp", rotulo: "📱 WhatsApp", ajuda: "podem entrar em campanha hoje", conta: (f) => f.prontasParaWhatsapp },
+  { id: "instagram", rotulo: "📸 Instagram", ajuda: "abordagem manual, uma a uma", conta: (f) => f.prontasParaInstagram },
+  { id: "enriquecer", rotulo: "🌐 Enriquecer", ajuda: "boas empresas sem canal", conta: (f) => f.aguardandoCanal },
 ];
 
 const STATUS_IG = [
@@ -89,35 +121,36 @@ const STATUS_IG = [
   { valor: "cliente", rotulo: "CLIENTE" },
 ];
 
-export default function CacadaPage() {
-  const [fila, setFila] = useState<Fila>("ambos");
+const PRIORIDADE_ENRIQ: Record<string, string> = {
+  alta: "🔥 alta",
+  media: "🟡 média",
+  baixa: "⚪ baixa",
+};
+
+export default function CentralPage() {
+  const [aba, setAba] = useState<Aba>("melhores");
   const [dados, setDados] = useState<Resposta | null>(null);
+  const [com, setCom] = useState<Comercial | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
   const [criando, setCriando] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
 
-  // ---- filtros do modo caça ----
+  // ---- filtros do radar ----
   const [soPequenos, setSoPequenos] = useState(true);
   const [soComSistema, setSoComSistema] = useState(true);
   const [soNaoContatados, setSoNaoContatados] = useState(false);
-  /**
-   * LIGADO por padrão: a operação é local. Medido — sem este filtro, 19 dos 20
-   * primeiros da lista eram de outra cidade, porque os leads antigos espalhados
-   * pelo Brasil têm telefone e os novos de Uberlândia quase não têm.
-   */
   const [soNaPraca, setSoNaPraca] = useState(true);
   const [segmento, setSegmento] = useState("");
+  const [mostrarDescartados, setMostrarDescartados] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const q = new URLSearchParams({ fila, quantidade: "200" });
-      /**
-       * `somenteWhatsapp=0` sempre: quem decide o canal aqui é a aba, não este
-       * filtro antigo — deixá-lo ligado esconderia a fila do Instagram inteira.
-       */
+      const q = new URLSearchParams({ aba, quantidade: "200" });
       q.set("somenteWhatsapp", "0");
       q.set("incluirContatados", "1");
+      if (!mostrarDescartados) q.set("esconderDescartados", "1");
       if (soPequenos) q.set("somentePequenos", "1");
       if (soComSistema) q.set("comPotencialSistema", "1");
       if (soNaoContatados) q.set("naoContatado", "1");
@@ -128,7 +161,7 @@ export default function CacadaPage() {
     } finally {
       setCarregando(false);
     }
-  }, [fila, soPequenos, soComSistema, soNaoContatados, soNaPraca, segmento]);
+  }, [aba, soPequenos, soComSistema, soNaoContatados, soNaPraca, segmento, mostrarDescartados]);
 
   useEffect(() => {
     void (async () => {
@@ -136,14 +169,26 @@ export default function CacadaPage() {
     })();
   }, [carregar]);
 
+  /** O funil de venda muda devagar — busca uma vez, não a cada filtro. */
+  useEffect(() => {
+    void (async () => {
+      try {
+        setCom(await fetch("/api/comercial/resumo").then((r) => r.json()));
+      } catch {
+        /* a Central funciona sem ele; os cartões de venda ficam em zero. */
+      }
+    })();
+  }, []);
+
+  const trocarAba = useCallback((nova: Aba) => {
+    setAba(nova);
+    setConfirmando(false);
+    setAviso(null);
+  }, []);
+
   const marcarInstagram = useCallback(async (id: string, status: string) => {
     setDados((d) =>
-      d
-        ? {
-            ...d,
-            leads: d.leads.map((l) => (l.id === id ? { ...l, instagramStatus: status } : l)),
-          }
-        : d,
+      d ? { ...d, leads: d.leads.map((l) => (l.id === id ? { ...l, instagramStatus: status } : l)) } : d,
     );
     await fetch("/api/instagram", {
       method: "PATCH",
@@ -152,13 +197,11 @@ export default function CacadaPage() {
     });
   }, []);
 
-  /**
-   * Cria a campanha pela MESMA rota que /disparos usa. Só entram leads da aba
-   * de WhatsApp que passam em `prontoParaProspeccao` — a tela não inventa
-   * elegibilidade, ela filtra pelo que o motor já respondeu.
-   */
   const prontos = useMemo(
-    () => (dados?.leads ?? []).filter((l) => l.prontoParaProspeccao),
+    () =>
+      (dados?.leads ?? []).filter(
+        (l) => l.oportunidade.elegivel && (l.canal === "whatsapp" || l.canal === "ambos"),
+      ),
     [dados],
   );
 
@@ -172,261 +215,431 @@ export default function CacadaPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nome: `Caça — ${data}`,
+          nome: `Central — ${data}`,
           leadIds: prontos.slice(0, 300).map((l) => l.id),
-          filtro: { origem: "modo-caca", fila },
+          filtro: { origem: "central", aba },
         }),
       }).then((x) => x.json());
 
+      setConfirmando(false);
       setAviso(
         r.campanha?.id
-          ? `Campanha criada com ${prontos.length} leads. Nada foi enviado — revise e aprove em /disparos.`
+          ? `Rascunhos criados para ${prontos.length} empresa(s). Nada foi enviado — revise e aprove em /disparos.`
           : (r.erro ?? "Não foi possível criar a campanha."),
       );
     } finally {
       setCriando(false);
     }
-  }, [prontos, fila]);
+  }, [prontos, aba]);
 
-  const c = dados?.canais;
+  const f = dados?.funil;
+  const praca = dados?.canais.praca?.split("/")[0] ?? "a praça";
+  const lista = dados?.leads ?? [];
+  /** O melhor movimento do momento: o primeiro da lista já vem ordenado. */
+  const destaque = lista.find((l) => l.oportunidade.elegivel) ?? lista[0] ?? null;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-6">
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
-        <div>
-          <h1 className="text-[19px] font-semibold">🎯 Modo caça</h1>
-          <p className="mt-0.5 text-[12.5px] text-[var(--texto-3)]">
-            As empresas que dá para abordar hoje, por canal. Nenhuma mensagem sai daqui.
-          </p>
-        </div>
-        <Link href="/disparos" className="text-[13px] text-[var(--azul)] underline">
-          ir para /disparos
-        </Link>
-      </div>
+    <main className="mx-auto max-w-5xl px-4 py-6">
+      <header className="mb-5">
+        <h1 className="text-[24px] font-semibold tracking-tight">Central de prospecção</h1>
+        <p className="mt-1 text-[13px] text-[var(--texto-3)]">
+          Encontre oportunidades, escolha a melhor abordagem e transforme leads em conversas.
+        </p>
+      </header>
 
-      {c && (
-        <section className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[
-            /**
-             * "Na praça" vem primeiro e em destaque: é o número que a operação
-             * local realmente usa. Acionável a 600 km é informação, não alvo.
-             */
-            { r: `📍 Em ${c.praca.split("/")[0]}`, v: c.naPraca, destaque: true },
-            { r: "🔥 Ambos os canais", v: c.ambos },
-            { r: "📱 WhatsApp", v: c.whatsapp },
-            { r: "✅ Acionáveis (total)", v: c.acionaveis },
-          ].map((i) => (
-            <div
-              key={i.r}
-              className={`rounded-[10px] px-2.5 py-2.5 text-center ${
-                i.destaque ? "bg-[var(--azul-fraco)]" : "bg-[var(--superficie)]"
-              }`}
-            >
+      {/**
+       * OS SETE NÚMEROS. Os quatro primeiros são aquisição (quem dá para
+       * abordar); os três últimos são venda (o que já está em movimento). Os
+       * dois funis são perguntas diferentes e vêm de APIs diferentes — juntá-los
+       * numa fileira só é o que faz esta tela ser um cockpit e não um relatório.
+       */}
+      {f && (
+        <div className="mb-5">
+          <Indicadores
+            itens={[
+              { rotulo: "🔥 Oportunidades quentes", valor: f.melhores, destaque: true, ajuda: "os dois canais e classificação 'quero vender'", onClick: () => trocarAba("melhores") },
+              { rotulo: "📱 WhatsApp prontos", valor: f.prontasParaWhatsapp, ajuda: "passam em todas as travas de campanha", onClick: () => trocarAba("whatsapp") },
+              { rotulo: "📸 Instagram", valor: f.prontasParaInstagram, ajuda: "abordagem manual", onClick: () => trocarAba("instagram") },
+              { rotulo: "🌐 Precisam enriquecer", valor: f.aguardandoCanal, ajuda: "boa empresa, canal ainda não encontrado", onClick: () => trocarAba("enriquecer") },
+              { rotulo: "🔁 Follow-ups", valor: com?.followUps.length ?? 0, ajuda: "vencidos ou para hoje" },
+              { rotulo: "💬 Responderam", valor: com?.indicadores.responderam ?? 0, ajuda: "conversa aberta, esperando você" },
+              { rotulo: "🎯 Propostas", valor: com?.indicadores.propostas ?? 0, ajuda: "aguardando retorno" },
+            ]}
+          />
+        </div>
+      )}
+
+      {/**
+       * §38 — a tela não maquia o problema. Se a base é grande e a fatia
+       * abordável é pequena, ela diz isso com todas as letras, e diz o que
+       * fazer a respeito.
+       */}
+      {f && (
+        <p className="mb-5 rounded-[10px] bg-[var(--superficie)] px-4 py-3 text-[12.5px] leading-relaxed text-[var(--texto-2)]">
+          Você tem <strong className="tabular-nums">{f.total}</strong> empresas cadastradas, e{" "}
+          <strong className="tabular-nums text-[var(--acao)]">{f.oportunidadesReais}</strong> com
+          canal utilizável neste momento.{" "}
+          {f.aguardandoCanal > 0 && (
+            <>
+              Outras <strong className="tabular-nums">{f.aguardandoCanal}</strong> são boas empresas
+              esperando um canal aparecer —{" "}
+              <button onClick={() => trocarAba("enriquecer")} className="text-[var(--acao)] underline">
+                enriquecer
+              </button>
+              .
+            </>
+          )}
+          {f.reabremSozinhas > 0 && (
+            <> ⏳ {f.reabremSozinhas} voltam quando a janela de recontato fechar.</>
+          )}
+        </p>
+      )}
+
+      {/* ─────────────── seu próximo melhor movimento ─────────────── */}
+      {destaque && (
+        <section className="cartao mb-6 p-5">
+          <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
+            Seu próximo melhor movimento
+          </p>
+          <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-[19px] font-semibold">{destaque.nome}</h2>
+            <span className="text-[13px] tabular-nums text-[var(--texto-3)]">
+              prioridade <strong className="text-[var(--acao)]">{destaque.probabilidade}/100</strong>
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Etiqueta>📍 {destaque.cidade ?? "cidade não informada"}</Etiqueta>
+            <Etiqueta>🏪 {destaque.segmento}</Etiqueta>
+            <Etiqueta tom={destaque.oportunidade.elegivel ? "acao" : "neutro"}>
+              {destaque.canalRotulo}
+            </Etiqueta>
+            <Etiqueta tom={destaque.decisao === "quero-vender" ? "bom" : "neutro"}>
+              {destaque.decisaoRotulo}
+            </Etiqueta>
+          </div>
+
+          {destaque.sistema && (
+            <div className="mt-3.5">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
+                💰 O que eu vendo
+              </p>
+              <p className="mt-1 text-[14px]">{destaque.sistema}</p>
+              {destaque.modulos.length > 0 && (
+                <p className="mt-0.5 text-[12px] text-[var(--texto-3)]">
+                  {destaque.modulos.join(" · ")}
+                </p>
+              )}
+            </div>
+          )}
+
+          {destaque.dor2.tipo !== "nenhuma" && (
+            <div className="mt-3">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
+                💡 {destaque.dor2.tipo === "confirmada" ? "Dor confirmada" : "Dor provável"}
+              </p>
               <p
-                className={`text-[19px] font-semibold tabular-nums ${
-                  i.destaque ? "text-[var(--azul)]" : ""
+                className={`mt-1 text-[13px] ${
+                  destaque.dor2.tipo === "confirmada" ? "text-[var(--verde)]" : "text-[var(--texto-2)]"
                 }`}
               >
-                {i.v}
+                {destaque.dor2.texto}
               </p>
-              <p className="text-[11px] leading-tight text-[var(--texto-3)]">{i.r}</p>
             </div>
-          ))}
+          )}
+
+          <div className="mt-3.5">
+            <FatoEInferencia
+              fatos={destaque.positivos.filter((m) => m.tipo === "fato").map((m) => m.texto)}
+              inferencias={destaque.positivos.filter((m) => m.tipo === "inferencia").map((m) => m.texto)}
+            />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link href={`/lead/${destaque.id}`} className="btn-primario">
+              ABRIR LEAD
+            </Link>
+            {destaque.whatsappUrl && (
+              <a href={destaque.whatsappUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
+                ABRIR WHATSAPP
+              </a>
+            )}
+            {destaque.instagramUrl && (
+              <a href={destaque.instagramUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
+                VER INSTAGRAM
+              </a>
+            )}
+            {destaque.website && (
+              <a href={destaque.website} target="_blank" rel="noopener noreferrer" className="btn-secundario">
+                VER SITE
+              </a>
+            )}
+            <Link href="/materiais" className="btn-secundario">
+              COMO ABORDAR
+            </Link>
+          </div>
         </section>
       )}
 
-      <div className="mb-3 flex flex-wrap gap-2">
-        {ABAS.map((a) => (
-          <button
-            key={a.id}
-            onClick={() => setFila(a.id)}
-            title={a.ajuda}
-            className={`rounded-full px-3.5 py-1.5 text-[12.5px] transition ${
-              fila === a.id
-                ? "bg-[var(--azul)] text-white"
-                : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
-            }`}
-          >
-            {a.rotulo}
-          </button>
-        ))}
+      {/* ─────────────────────── radar ─────────────────────── */}
+      <div className="mb-3">
+        <Abas
+          abas={ABAS.map((a) => ({ id: a.id, rotulo: a.rotulo, ajuda: a.ajuda, contagem: f ? a.conta(f) : undefined }))}
+          atual={aba}
+          aoTrocar={trocarAba}
+        />
       </div>
+      <p className="mb-3 text-[12px] text-[var(--texto-3)]">
+        {ABAS.find((a) => a.id === aba)?.ajuda}
+      </p>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 text-[12.5px]">
+      <div className="mb-2 flex flex-wrap items-center gap-3 text-[12.5px]">
         <label className="flex items-center gap-1.5">
           <input type="checkbox" checked={soPequenos} onChange={(e) => setSoPequenos(e.target.checked)} />
           🏪 pequenos/locais
         </label>
         <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={soComSistema}
-            onChange={(e) => setSoComSistema(e.target.checked)}
-          />
+          <input type="checkbox" checked={soComSistema} onChange={(e) => setSoComSistema(e.target.checked)} />
           🛠 com sistema aplicável
         </label>
         <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={soNaoContatados}
-            onChange={(e) => setSoNaoContatados(e.target.checked)}
-          />
+          <input type="checkbox" checked={soNaoContatados} onChange={(e) => setSoNaoContatados(e.target.checked)} />
           🚫 nunca contatados
         </label>
         <label className="flex items-center gap-1.5">
           <input type="checkbox" checked={soNaPraca} onChange={(e) => setSoNaPraca(e.target.checked)} />
-          📍 só {dados?.canais.praca ?? "a praça"}
+          📍 só {praca}
         </label>
-        <input
+        <select
           value={segmento}
           onChange={(e) => setSegmento(e.target.value)}
-          placeholder="nicho (ex.: oficina mecânica)"
-          className="w-56 rounded-[10px] bg-[var(--superficie)] px-3 py-1.5 text-[12.5px]"
-        />
+          className="campo w-56 py-1.5 text-[12.5px]"
+        >
+          <option value="">todos os nichos</option>
+          {(dados?.segmentos ?? [])
+            .slice(0, 40)
+            .map((s) => (
+              <option key={s.nome} value={s.nome}>
+                {s.nome} ({s.total})
+              </option>
+            ))}
+        </select>
       </div>
 
-      {/**
-       * Redes, franquias e leads sem canal já saem no motor. A linha abaixo diz
-       * quantos foram excluídos e por quê — para a lista curta não parecer erro.
-       */}
-      {c && c.descartes.length > 0 && (
-        <p className="mb-4 text-[11.5px] text-[var(--texto-3)]">
-          excluídos da operação: {c.descartes.map((d) => `${d.quantidade} ${d.rotulo.toLowerCase()}`).join(" · ")}
-        </p>
-      )}
+      <details className="mb-4">
+        <summary className="cursor-pointer text-[11.5px] text-[var(--texto-3)]">filtros avançados</summary>
+        <div className="mt-2 space-y-1.5 pl-1">
+          <label className="flex items-center gap-1.5 text-[12.5px]">
+            <input
+              type="checkbox"
+              checked={mostrarDescartados}
+              onChange={(e) => setMostrarDescartados(e.target.checked)}
+            />
+            mostrar também os descartados (rede, sem encaixe, já encerrados)
+          </label>
+          {f && f.bloqueios.length > 0 && (
+            <p className="text-[11.5px] leading-relaxed text-[var(--texto-3)]">
+              fora da operação:{" "}
+              {f.bloqueios.slice(0, 6).map((b) => `${b.quantidade} ${b.motivo.toLowerCase()}`).join(" · ")}
+            </p>
+          )}
+        </div>
+      </details>
 
-      {fila === "whatsapp" && (
+      {/* ───────────────── preparar campanha ───────────────── */}
+      {aba === "whatsapp" && (
         <div className="mb-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
           <p className="text-[13px]">
-            <strong className="tabular-nums">{prontos.length}</strong> prontos para disparo agora
-            {dados && dados.leads.length > prontos.length && (
-              <span className="text-[var(--texto-3)]">
-                {" "}
-                · {dados.leads.length - prontos.length} têm WhatsApp mas estão bloqueados (contato
-                recente, mensagem viva ou já adiante no funil)
-              </span>
-            )}
+            <strong className="tabular-nums">{prontos.length}</strong> empresa
+            {prontos.length === 1 ? "" : "s"} pronta{prontos.length === 1 ? "" : "s"} para campanha agora
           </p>
-          <button
-            onClick={criarCampanha}
-            disabled={criando || prontos.length === 0}
-            className="btn-primario mt-2.5"
-          >
-            {criando ? "Criando…" : `ADICIONAR ${prontos.length} À CAMPANHA`}
-          </button>
-          {aviso && <p className="mt-2 text-[12.5px] text-[var(--azul)]">{aviso}</p>}
+          {!confirmando && (
+            <button onClick={() => setConfirmando(true)} disabled={prontos.length === 0} className="btn-primario mt-2.5">
+              PREPARAR CAMPANHA
+            </button>
+          )}
+          {confirmando && (
+            <div className="mt-3 rounded-[10px] bg-[var(--superficie-2)] px-3.5 py-3">
+              <p className="text-[13px] font-medium">
+                Criar rascunhos para {prontos.length} empresa{prontos.length === 1 ? "" : "s"}?
+              </p>
+              <ul className="mt-2 space-y-1 text-[12px] text-[var(--texto-2)]">
+                <li>✓ Só entram empresas com WhatsApp plausível e sistema aplicável</li>
+                <li>✓ Rede, franquia e ramo de grande porte já foram excluídos</li>
+                <li>✓ Quem pediu para não ser contatado nunca entra</li>
+                <li>✓ Contato recente, mensagem viva e duplicata também barram</li>
+                <li>✓ Cada trava é revalidada no servidor, mensagem por mensagem</li>
+                <li className="text-[var(--texto-3)]">
+                  → Isto cria RASCUNHOS. Nada é enviado até você aprovar em /disparos.
+                </li>
+              </ul>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={criarCampanha} disabled={criando} className="btn-primario">
+                  {criando ? "Criando…" : `CRIAR ${prontos.length} RASCUNHO(S)`}
+                </button>
+                <button onClick={() => setConfirmando(false)} className="btn-secundario">
+                  CANCELAR
+                </button>
+              </div>
+            </div>
+          )}
+          {aviso && <p className="mt-2 text-[12.5px] text-[var(--acao)]">{aviso}</p>}
+        </div>
+      )}
+
+      {aba === "enriquecer" && f && (
+        <div className="mb-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-3">
+          <p className="text-[13px]">
+            <strong className="tabular-nums">{f.aguardandoCanal}</strong> boas empresas sem canal de contato
+          </p>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--texto-3)]">
+            Elas têm ramo, porte e encaixe de sistema — falta o contato. As fontes gratuitas (mapa
+            aberto e site próprio) encontram poucas: a maioria destes cadastros não publica contato
+            em lugar nenhum. Esta é uma fila de trabalho priorizada, não uma promessa.
+          </p>
         </div>
       )}
 
       {carregando && <p className="text-[13px] text-[var(--texto-3)]">carregando…</p>}
-      {!carregando && (dados?.leads.length ?? 0) === 0 && (
-        <p className="rounded-[10px] bg-[var(--superficie)] px-4 py-3 text-[13px] text-[var(--texto-3)]">
-          Nenhuma empresa nesta fila com os filtros atuais.
-        </p>
+      {!carregando && lista.length === 0 && (
+        <Vazio
+          titulo="Nenhuma empresa nesta aba com os filtros atuais."
+          detalhe={
+            aba === "melhores"
+              ? "O corte de 🔥 é estreito de propósito: exige os dois canais e classificação 'quero vender'. Tente 📱 WhatsApp ou 📸 Instagram."
+              : "Afrouxe um filtro, ou use a aba 🌐 Enriquecer para trabalhar quem ainda não tem canal."
+          }
+        />
       )}
 
+      {/* ─────────────────────── cartões ─────────────────────── */}
       <ul className="space-y-2.5">
-        {(dados?.leads ?? []).map((l) => (
+        {lista.map((l) => (
           <li key={l.id} className="cartao p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div>
                 <p className="text-[11.5px] font-medium tracking-wide text-[var(--texto-3)]">
                   {l.decisaoRotulo}
                 </p>
-                <p className="text-[15px] font-medium">
-                  {l.canal === "ambos" ? "🔥 " : l.canal === "whatsapp" ? "📱 " : "📸 "}
-                  {l.nome}
-                </p>
+                <p className="text-[15px] font-medium">{l.nome}</p>
               </div>
               <span className="text-[12px] tabular-nums text-[var(--texto-3)]">
                 comercial {l.scoreComercial} · contato {l.scoreContatabilidade} · prioridade{" "}
-                <strong className="text-[var(--texto-2)]">{l.probabilidade}/100</strong>
+                <strong className="text-[var(--acao)]">{l.probabilidade}/100</strong>
               </span>
             </div>
 
-            <p className="mt-0.5 text-[12.5px] text-[var(--texto-3)]">
-              {l.segmento}
-              {l.cidade ? ` · ${l.cidade}` : ""} · {l.alcanceRotulo} · 🏪 {l.porteEstimadoRotulo} ·{" "}
-              {l.semSiteConfirmado ? "🌐 sem site" : l.temSite ? "🌐 tem site" : "🌐 site não conferido"}
-              {l.prontoParaProspeccao && (
-                <span className="text-[var(--azul)]"> · ✅ pronto para disparo</span>
-              )}
-            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <Etiqueta>🏪 {l.segmento}</Etiqueta>
+              {l.cidade && <Etiqueta>📍 {l.cidade}</Etiqueta>}
+              <Etiqueta tom={l.oportunidade.elegivel ? "acao" : "neutro"}>{l.canalRotulo}</Etiqueta>
+              <Etiqueta titulo="Estado do contato — formato nunca prova conta de WhatsApp">
+                {l.contatoRotulo}
+              </Etiqueta>
+              {l.telefoneOrigem && <Etiqueta titulo="Origem do número">via {l.telefoneOrigem}</Etiqueta>}
+            </div>
 
-            {l.sistema && <p className="mt-1.5 text-[13px] text-[var(--texto-2)]">🛠 {l.sistema}</p>}
-
-            {/**
-             * A DOR nunca aparece como fato antes da conversa. "Dor provável"
-             * vem com os sinais que a sustentam; "confirmada" só depois de o
-             * cliente descrever o processo dele.
-             */}
-            {l.dor2.tipo === "confirmada" && (
-              <p className="mt-0.5 text-[12.5px] text-[var(--verde)]">
-                ✅ Dor confirmada: {l.dor2.texto}
+            {l.sistema && (
+              <p className="mt-2 text-[13px] text-[var(--texto-2)]">
+                💰 {l.sistema}
+                {l.modulos.length > 0 && (
+                  <span className="text-[var(--texto-3)]"> — {l.modulos.slice(0, 5).join(", ")}</span>
+                )}
               </p>
             )}
+
+            {l.dor2.tipo === "confirmada" && (
+              <p className="mt-1 text-[12.5px] text-[var(--verde)]">✅ Dor confirmada: {l.dor2.texto}</p>
+            )}
             {l.dor2.tipo === "provavel" && (
-              <p className="mt-0.5 text-[12.5px] text-[var(--texto-3)]">
+              <p className="mt-1 text-[12.5px] text-[var(--texto-3)]">
                 💡 Dor provável: {l.dor2.texto}
                 <span className="opacity-70"> — {l.dor2.sinais.join(", ")}</span>
               </p>
             )}
 
-            {l.positivos.length > 0 && (
-              <ul className="mt-1.5 space-y-0.5">
-                {l.positivos.map((m) => (
-                  <li key={m.texto} className="text-[12px] text-[var(--texto-2)]">
-                    ✓ {m.texto}{" "}
-                    <span className="tabular-nums text-[var(--texto-3)]">+{m.pontos}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {l.negativos.length > 0 && (
-              <ul className="mt-1 space-y-0.5">
-                {l.negativos.map((m) => (
-                  <li key={m.texto} className="text-[12px] text-[var(--texto-3)]">
-                    ⚠️ {m.texto}
-                    {m.pontos !== 0 && <span className="tabular-nums"> {m.pontos}</span>}
-                  </li>
-                ))}
-              </ul>
+            <div className="mt-2.5">
+              <FatoEInferencia
+                fatos={l.positivos.filter((m) => m.tipo === "fato").map((m) => m.texto)}
+                inferencias={l.positivos.filter((m) => m.tipo === "inferencia").map((m) => m.texto)}
+              />
+            </div>
+
+            {aba === "enriquecer" && (
+              <p className="mt-2 text-[12.5px]">
+                {PRIORIDADE_ENRIQ[l.enriquecimentoPrioridade ?? ""] ?? "⚪ sem prioridade"} ·{" "}
+                <span className="text-[var(--texto-3)]">{l.enriquecimentoMotivo}</span>
+              </p>
             )}
 
-            {/* Ações de Instagram só onde fazem sentido — e nunca disparam nada. */}
-            {(l.canal === "instagram" || l.canal === "ambos") && l.instagramUrl && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <a
-                  href={l.instagramUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secundario"
-                >
-                  ABRIR @{l.instagramUsername}
-                </a>
-                {STATUS_IG.map((s) => (
-                  <button
-                    key={s.valor}
-                    onClick={() =>
-                      void marcarInstagram(
-                        l.id,
-                        l.instagramStatus === s.valor ? "nao-abordado" : s.valor,
-                      )
-                    }
-                    className={`rounded-[10px] px-3 py-1.5 text-[12px] transition ${
-                      l.instagramStatus === s.valor
-                        ? "bg-[var(--azul-fraco)] font-medium text-[var(--azul)]"
-                        : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
-                    }`}
-                  >
-                    {s.rotulo}
-                  </button>
-                ))}
-              </div>
+            {!l.oportunidade.elegivel && l.oportunidade.bloqueios.length > 0 && (
+              <p className="mt-2 text-[12px] text-[var(--texto-3)]">
+                {l.oportunidade.reabreSozinha ? "⏳" : "🚫"} {l.oportunidade.bloqueios.join(" · ")}
+                {l.oportunidade.reabreSozinha && " — volta à fila sozinha"}
+              </p>
             )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Link href={`/lead/${l.id}`} className="btn-secundario">
+                ABRIR LEAD
+              </Link>
+              {l.whatsappUrl && (
+                <a href={l.whatsappUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
+                  WHATSAPP
+                </a>
+              )}
+              {l.website && (
+                <a href={l.website} target="_blank" rel="noopener noreferrer" className="btn-secundario">
+                  SITE
+                </a>
+              )}
+              {(l.canal === "instagram" || l.canal === "ambos") && l.instagramUrl && (
+                <>
+                  <a href={l.instagramUrl} target="_blank" rel="noopener noreferrer" className="btn-secundario">
+                    @{l.instagramUsername}
+                  </a>
+                  {STATUS_IG.map((s) => (
+                    <button
+                      key={s.valor}
+                      onClick={() =>
+                        void marcarInstagram(l.id, l.instagramStatus === s.valor ? "nao-abordado" : s.valor)
+                      }
+                      className={`rounded-[10px] px-3 py-1.5 text-[12px] transition ${
+                        l.instagramStatus === s.valor
+                          ? "bg-[var(--acao-fraco)] font-medium text-[var(--acao)]"
+                          : "bg-[var(--superficie)] hover:bg-[var(--superficie-2)]"
+                      }`}
+                    >
+                      {s.rotulo}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
           </li>
         ))}
       </ul>
+
+      {/* ──────────── funil de venda: onde se perde gente ──────────── */}
+      {com && com.funil.length > 0 && (
+        <section className="cartao mt-6 p-5">
+          <p className="text-[15px] font-semibold">Funil de venda</p>
+          <p className="mt-0.5 mb-3 text-[12px] text-[var(--texto-3)]">
+            Depois da abordagem. A distância entre dois degraus é onde a prospecção perde gente.
+          </p>
+          <div className="space-y-2">
+            {com.funil.map((e) => (
+              <Barra key={e.etapa} rotulo={e.etapa} valor={e.quantos} de={com.funil[0].quantos || 1} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {f && (
+        <p className="mt-6 text-[11.5px] text-[var(--texto-3)]">
+          base completa: {f.total} cadastros · {f.comPotencialDeSolucao} com potencial de solução ·{" "}
+          {f.oportunidadesReais} abordáveis hoje
+        </p>
+      )}
     </main>
   );
 }

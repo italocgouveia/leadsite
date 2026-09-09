@@ -48,14 +48,23 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
   { termos: ["cafeteria", "café", "cafe"], filtros: [{ chave: "amenity", valor: "cafe" }] },
   { termos: ["padaria"], filtros: [{ chave: "shop", valor: "bakery" }] },
   {
-    termos: ["confeitaria", "doceria", "bolos"],
+    termos: ["confeitaria", "doceria", "chocolateria", "bolos"],
+    /** Doceria, confeitaria e chocolateria são o mesmo negócio para quem vende sistema. */
     filtros: [
       { chave: "shop", valor: "pastry" },
       { chave: "shop", valor: "confectionery" },
+      { chave: "shop", valor: "chocolate" },
     ],
   },
   { termos: ["sorveteria", "açaí", "acai", "gelato"], filtros: [{ chave: "amenity", valor: "ice_cream" }] },
-  { termos: ["bar", "petiscaria", "boteco"], filtros: [{ chave: "amenity", valor: "bar" }] },
+  {
+    termos: ["bar", "petiscaria", "boteco"],
+    /** `pub` é como o mapa marca boa parte dos bares daqui. */
+    filtros: [
+      { chave: "amenity", valor: "bar" },
+      { chave: "amenity", valor: "pub" },
+    ],
+  },
   {
     termos: ["sushi", "japonesa", "japonês"],
     filtros: [{ chave: "amenity", valor: "restaurant", extra: '["cuisine"~"japanese|sushi",i]' }],
@@ -69,7 +78,11 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
   // Saúde
   {
     termos: ["odontologia", "dentista", "clínica odontológica", "odontológica"],
-    filtros: [{ chave: "amenity", valor: "dentist" }],
+    /** O mesmo consultório aparece nas duas tags — cobrir só uma perde metade. */
+    filtros: [
+      { chave: "amenity", valor: "dentist" },
+      { chave: "healthcare", valor: "dentist" },
+    ],
   },
   { termos: ["veterinária", "veterinaria", "veterinário"], filtros: [{ chave: "amenity", valor: "veterinary" }] },
   { termos: ["farmácia", "farmacia", "drogaria"], filtros: [{ chave: "amenity", valor: "pharmacy" }] },
@@ -78,6 +91,8 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
     filtros: [
       { chave: "amenity", valor: "clinic" },
       { chave: "amenity", valor: "doctors" },
+      { chave: "healthcare", valor: "clinic" },
+      { chave: "healthcare", valor: "doctor" },
       { chave: "healthcare", valor: "physiotherapist" },
       { chave: "healthcare", valor: "psychotherapist" },
     ],
@@ -91,7 +106,13 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
     filtros: [{ chave: "leisure", valor: "fitness_centre" }],
   },
   { termos: ["escola de dança", "dança", "danca"], filtros: [{ chave: "leisure", valor: "dance" }] },
-  { termos: ["luta", "jiu jitsu", "muay thai", "karatê"], filtros: [{ chave: "leisure", valor: "sports_centre" }] },
+  {
+    termos: ["luta", "jiu jitsu", "muay thai", "karatê"],
+    filtros: [
+      { chave: "leisure", valor: "sports_centre" },
+      { chave: "amenity", valor: "dojo" },
+    ],
+  },
 
   // Automotivo
   {
@@ -127,7 +148,14 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
     ],
   },
   { termos: ["informática", "informatica", "computador"], filtros: [{ chave: "shop", valor: "computer" }] },
-  { termos: ["material de construção", "construção"], filtros: [{ chave: "shop", valor: "doityourself" }] },
+  {
+    termos: ["material de construção", "construção"],
+    filtros: [
+      { chave: "shop", valor: "doityourself" },
+      { chave: "shop", valor: "hardware" },
+      { chave: "shop", valor: "paint" },
+    ],
+  },
   { termos: ["móveis", "moveis", "planejados"], filtros: [{ chave: "shop", valor: "furniture" }] },
   { termos: ["suplementos", "suplemento"], filtros: [{ chave: "shop", valor: "nutrition_supplements" }] },
   { termos: ["mercado", "supermercado", "mercearia"], filtros: [{ chave: "shop", valor: "supermarket" }] },
@@ -321,6 +349,57 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
       { chave: "amenity", valor: "events_venue" },
       { chave: "office", valor: "event_management" },
     ],
+  },
+  /**
+   * ---------------- ramos acrescentados pela sonda de cobertura ----------------
+   * Ver `npm run sondar:cobertura` e o bloco correspondente em nichos-locais.ts.
+   */
+  {
+    termos: ["farmácia", "farmacia", "drogaria"],
+    filtros: [
+      { chave: "amenity", valor: "pharmacy" },
+      { chave: "healthcare", valor: "pharmacy" },
+    ],
+  },
+  { termos: ["açougue", "acougue"], filtros: [{ chave: "shop", valor: "butcher" }] },
+  {
+    termos: ["hortifruti", "quitanda", "sacolão"],
+    filtros: [{ chave: "shop", valor: "greengrocer" }],
+  },
+  { termos: ["agropecuária", "agropecuaria"], filtros: [{ chave: "shop", valor: "agrarian" }] },
+  { termos: ["revenda de gás", "revenda de gas", "gás"], filtros: [{ chave: "shop", valor: "gas" }] },
+  {
+    termos: ["distribuidora de bebidas", "bebidas", "adega"],
+    filtros: [{ chave: "shop", valor: "beverages" }],
+  },
+  {
+    termos: ["cosméticos", "cosmeticos", "perfumaria"],
+    filtros: [{ chave: "shop", valor: "cosmetics" }],
+  },
+  { termos: ["artigos de festa", "festa"], filtros: [{ chave: "shop", valor: "party" }] },
+  {
+    termos: ["tecidos", "aviamentos", "armarinho"],
+    filtros: [{ chave: "shop", valor: "fabric" }],
+  },
+  {
+    termos: ["revenda de veículos", "revenda de veiculos", "concessionária"],
+    filtros: [{ chave: "shop", valor: "car" }],
+  },
+  {
+    termos: ["casa noturna", "balada", "night club"],
+    filtros: [{ chave: "amenity", valor: "nightclub" }],
+  },
+  { termos: ["papelaria"], filtros: [{ chave: "shop", valor: "stationery" }] },
+  {
+    termos: ["utilidades domésticas", "utilidades domesticas", "casa e decoração"],
+    filtros: [
+      { chave: "shop", valor: "houseware" },
+      { chave: "shop", valor: "bed" },
+    ],
+  },
+  {
+    termos: ["loja de conveniência", "loja de conveniencia", "conveniência"],
+    filtros: [{ chave: "shop", valor: "convenience" }],
   },
 ];
 

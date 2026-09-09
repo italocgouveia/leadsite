@@ -1,6 +1,7 @@
 import type { Lead } from "@/lib/db/schema";
 import { validarTelefone, telefoneDoLead, dddCompativel } from "@/lib/telefone";
 import { avaliarSistema } from "@/lib/sistemas";
+import { SEM_SITE, ehPlataformaCompartilhada } from "@/lib/places/audit";
 import { classificarPorte, ehCategoriaDeGrandePorte } from "@/lib/porte";
 
 /**
@@ -23,12 +24,13 @@ import { classificarPorte, ehCategoriaDeGrandePorte } from "@/lib/porte";
  * informando, está enganando.
  */
 
-export type Canal = "ambos" | "whatsapp" | "instagram" | "sem-canal";
+export type Canal = "ambos" | "whatsapp" | "instagram" | "site" | "sem-canal";
 
 export const ROTULO_CANAL: Record<Canal, string> = {
   ambos: "🔥 WhatsApp + Instagram",
   whatsapp: "📱 WhatsApp",
   instagram: "📸 Instagram",
+  site: "🌐 Só site — enriquecer",
   "sem-canal": "❌ Sem canal",
 };
 
@@ -58,7 +60,7 @@ export const ROTULO_STATUS_INSTAGRAM: Record<StatusInstagram, string> = {
  * a uma foto, não ao negócio. Reels, stories e páginas internas do produto
  * caem no mesmo caso.
  */
-const NAO_E_PERFIL = new Set([
+export const NAO_E_PERFIL = new Set([
   "p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct",
   "about", "developer", "legal", "privacy", "terms", "help", "web",
 ]);
@@ -118,12 +120,49 @@ export function temCelularPlausivel(lead: Lead): boolean {
   return dddCompativel(tel.formatado, lead.estado);
 }
 
+/**
+ * A empresa tem SITE PRÓPRIO — e isso é um canal, ainda que fraco.
+ *
+ * Fraco porque site não é endereço de conversa: ninguém vende por formulário
+ * de contato. O que ele dá é um CAMINHO até o canal — a home publica o wa.me,
+ * o @ do Instagram ou o telefone do rodapé. Por isso o site entra como canal
+ * de ENRIQUECIMENTO, nunca de disparo.
+ *
+ * `SEM_SITE` cobre o caso que já custou caro nesta base: Instagram, Linktree,
+ * iFood e wa.me gravados na coluna `website`. Nada disso é site próprio, e
+ * contar como tal inflaria o canal com links que já são outro canal.
+ *
+ * Duas checagens, e as duas são necessárias.
+ *
+ * `SEM_SITE` cobre o que a auditoria JÁ CONFERIU e classificou como rede
+ * social ou agregador. Mas 1.108 leads estão em `nao-verificado`, e nesses a
+ * auditoria não tem opinião — um `instagram.com/oficina` gravado na coluna
+ * `website` passaria como site próprio só porque ninguém o conferiu ainda.
+ *
+ * Por isso o endereço também é olhado direto: `ehPlataformaCompartilhada`
+ * reconhece o host sem depender de auditoria nenhuma. Link de rede social já é
+ * OUTRO canal; contá-lo como site inflaria a fila de enriquecimento com quem
+ * já tem por onde ser abordado.
+ */
+export function temSiteProprio(lead: Pick<Lead, "website" | "statusSite">): boolean {
+  if (!lead.website) return false;
+  if (ehPlataformaCompartilhada(lead.website)) return false;
+  return !SEM_SITE.includes(lead.statusSite);
+}
+
 export function canalDoLead(lead: Lead): Canal {
   const zap = temCelularPlausivel(lead);
   const ig = Boolean(instagramDoLead(lead));
   if (zap && ig) return "ambos";
   if (zap) return "whatsapp";
   if (ig) return "instagram";
+  /**
+   * Site vem por último de propósito: quem já tem WhatsApp ou Instagram é
+   * classificado por eles, porque são canais de conversa. O site só decide o
+   * canal de quem não tem nenhum dos dois — e o que ele significa, na prática,
+   * é "dá para descobrir um canal aqui", não "dá para falar hoje".
+   */
+  if (temSiteProprio(lead)) return "site";
   return "sem-canal";
 }
 
@@ -155,7 +194,9 @@ export function motivoDeDescarte(lead: Lead): Descarte {
   if (classificarPorte(lead).rede || ehCategoriaDeGrandePorte(lead.categoria)) {
     return "rede-ou-grande";
   }
-  if (canalDoLead(lead) === "sem-canal") return "sem-canal";
+  /** Só site conta como sem canal AQUI: não dá para conversar com um site. */
+  const c = canalDoLead(lead);
+  if (c === "sem-canal" || c === "site") return "sem-canal";
   if (!avaliarSistema(lead).serve) return "sem-sistema";
   return null;
 }

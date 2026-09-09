@@ -222,16 +222,40 @@ async function main() {
     `${alta.leads.length} leads`,
   );
   ok("12. prioridade alta é subconjunto de todas", alta.leads.length <= todas.leads.length);
+  /**
+   * A ORDEM DE TRABALHO — e ela não é mais o score bruto.
+   *
+   * Este teste cobrava `score` decrescente, que era o critério antigo. Hoje a
+   * lista é ordenada por decisão comercial (🔥 antes de 🟡 antes de ⚪), depois
+   * praça, depois aderência do sistema; o score entra só como desempate no
+   * fim. Foi uma troca deliberada: ordenar por score puro colocava dentista de
+   * São Paulo com 2.000 avaliações acima de oficina de Uberlândia, e volume de
+   * dado não é qualidade comercial.
+   *
+   * Cobrar o critério antigo faria o teste defender o defeito que a mudança
+   * veio corrigir, então ele agora verifica a ordem que a operação usa.
+   */
+  const ORDEM_DECISAO: Record<string, number> = {
+    "quero-vender": 0,
+    "vale-abordar": 1,
+    "nao-prioritario": 2,
+  };
   ok(
-    "13. lista vem ordenada do melhor para o pior",
-    todas.leads.every((l, i) => i === 0 || todas.leads[i - 1].score >= l.score),
+    "13. lista vem ordenada pela decisão comercial, não pelo score bruto",
+    todas.leads.every(
+      (l, i) => i === 0 || ORDEM_DECISAO[todas.leads[i - 1].decisao] <= ORDEM_DECISAO[l.decisao],
+    ),
+    todas.leads
+      .slice(0, 4)
+      .map((l) => `${l.decisao}/${l.probabilidade}`)
+      .join(" → "),
   );
 
   const cortado = await oportunidades({ somenteWhatsapp: false }, 3);
   ok("14. limite de quantidade é respeitado", cortado.leads.length === 3, `${cortado.leads.length} leads`);
   ok(
     "15. os cortados são os melhores, não os primeiros do banco",
-    cortado.leads[0].score >= cortado.leads[2].score,
+    ORDEM_DECISAO[cortado.leads[0].decisao] <= ORDEM_DECISAO[cortado.leads[2].decisao],
   );
 
   console.log("\n=== D. PERFIS POR NICHO ===");

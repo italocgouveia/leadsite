@@ -151,6 +151,33 @@ export const NICHOS_LOCAIS: NichoLocal[] = [
   { termo: "suplementos", rotulo: "Suplementos", recorrente: true, prioridade: "B" },
   { termo: "loja de roupas", rotulo: "Loja de roupas", recorrente: true, prioridade: "C" },
   { termo: "calçados", rotulo: "Calçados", recorrente: false, prioridade: "C" },
+
+  /**
+   * ---------------- ramos que o mapa tem e a lista não previa ----------------
+   *
+   * Vieram de `npm run sondar:cobertura`, que compara as tags dos negócios
+   * nomeados de Uberlândia com o que esta lista cobre. Eram 761 estabelecimentos
+   * fora do alcance da coleta — não por decisão, por esquecimento.
+   *
+   * O que NÃO entrou, e por quê: supermercado (97), shopping, loja de
+   * departamento e atacado são rede ou grande porte, e o produto não é para
+   * eles; repartição pública, escola pública e instituto de pesquisa não
+   * compram sistema de bairro.
+   */
+  { termo: "farmácia", rotulo: "Farmácia e drogaria", recorrente: true, prioridade: "B" },
+  { termo: "açougue", rotulo: "Açougue", recorrente: true, prioridade: "B" },
+  { termo: "hortifruti", rotulo: "Hortifruti e quitanda", recorrente: true, prioridade: "B" },
+  { termo: "agropecuária", rotulo: "Agropecuária", recorrente: true, prioridade: "B" },
+  { termo: "revenda de gás", rotulo: "Revenda de gás e água", recorrente: true, prioridade: "B" },
+  { termo: "distribuidora de bebidas", rotulo: "Distribuidora de bebidas", recorrente: true, prioridade: "B" },
+  { termo: "cosméticos", rotulo: "Cosméticos e perfumaria", recorrente: true, prioridade: "B" },
+  { termo: "artigos de festa", rotulo: "Artigos de festa", recorrente: false, prioridade: "B" },
+  { termo: "tecidos", rotulo: "Tecidos e aviamentos", recorrente: false, prioridade: "B" },
+  { termo: "revenda de veículos", rotulo: "Revenda de veículos", recorrente: false, prioridade: "B" },
+  { termo: "casa noturna", rotulo: "Casa noturna", recorrente: false, prioridade: "B" },
+  { termo: "papelaria", rotulo: "Papelaria", recorrente: false, prioridade: "C" },
+  { termo: "utilidades domésticas", rotulo: "Utilidades domésticas", recorrente: false, prioridade: "C" },
+  { termo: "loja de conveniência", rotulo: "Loja de conveniência", recorrente: true, prioridade: "C" },
 ];
 
 /** Só os termos, para o coletor iterar. */

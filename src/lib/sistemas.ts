@@ -489,10 +489,119 @@ const PERFIS: Record<string, Perfil> = {
     modulos: ["clientes", "reservas", "historico", "retorno", "financeiro"],
     dor: "controlar cotação e prazo de cada cliente em conversa solta de WhatsApp",
   },
+
+  /**
+   * --- comércio de bairro que gira estoque todo dia ---
+   *
+   * Entraram junto com os nichos que a sonda de cobertura revelou. Sem perfil
+   * aqui, o lead é coletado e descartado no mesmo instante: `avaliarSistema`
+   * devolve `serve: false`, e a avaliação comercial trata isso como trava
+   * dura. Foi o que aconteceu na primeira rodada — "sem solução no ramo" pulou
+   * de 56 para 236 assim que os 225 leads novos entraram.
+   */
+  butcher: {
+    sistema: "Sistema de balcão e estoque para açougue",
+    modulos: ["pedidos", "estoque", "clientes", "financeiro"],
+    dor: "anotar o que saiu da câmara num caderno e descobrir a perda só quando falta peça",
+  },
+  greengrocer: {
+    sistema: "Sistema de estoque e caixa para hortifruti",
+    modulos: ["pedidos", "estoque", "financeiro"],
+    dor: "controlar validade e perda de produto fresco de cabeça, item por item",
+  },
+  agrarian: {
+    sistema: "Sistema de estoque e orçamento para agropecuária",
+    modulos: ["catalogo", "estoque", "clientes", "orcamento", "financeiro"],
+    dor: "montar orçamento de ração e insumo no papel e não achar o que o cliente levou da última vez",
+  },
+  gas: {
+    sistema: "Sistema de pedidos e entrega para revenda de gás e água",
+    modulos: ["pedidos", "clientes", "historico", "financeiro"],
+    dor: "anotar pedido de entrega no papel e não saber de quanto em quanto tempo cada cliente repõe",
+  },
+  beverages: {
+    sistema: "Sistema de pedidos e estoque para distribuidora",
+    modulos: ["pedidos", "catalogo", "estoque", "clientes", "financeiro"],
+    dor: "tirar pedido por WhatsApp e passar a limpo à mão, item por item, no fim do dia",
+  },
+  chocolate: {
+    sistema: "Sistema de encomendas para doceria",
+    modulos: ["pedidos", "catalogo", "clientes", "agendamento", "financeiro"],
+    dor: "controlar encomenda com data de retirada em bloco de anotação e correr o risco de furar a entrega",
+  },
+  cosmetics: {
+    sistema: "Sistema de vitrine e estoque para perfumaria",
+    modulos: ["catalogo", "estoque", "clientes", "financeiro"],
+    dor: "não saber o que já acabou na prateleira antes do cliente perguntar",
+  },
+  party: {
+    sistema: "Sistema de locação e orçamento para artigos de festa",
+    modulos: ["orcamento", "agendamento", "catalogo", "estoque", "clientes"],
+    dor: "controlar em agenda de papel o que está alugado, para quando, e o que já voltou",
+  },
+  fabric: {
+    sistema: "Sistema de catálogo e estoque para loja de tecidos",
+    modulos: ["catalogo", "estoque", "clientes", "orcamento"],
+    dor: "conferir metragem e retalho na mão e refazer a conta a cada corte",
+  },
+  stationery: {
+    sistema: "Sistema de estoque e pedidos para papelaria",
+    modulos: ["catalogo", "estoque", "pedidos", "financeiro"],
+    dor: "repor material sem histórico do que sai mais em cada época do ano",
+  },
+  houseware: {
+    sistema: "Sistema de catálogo e estoque para loja de utilidades",
+    modulos: ["catalogo", "estoque", "clientes", "financeiro"],
+    dor: "manter preço e disponibilidade atualizados em mais de um canal, à mão",
+  },
+  bed: {
+    sistema: "Sistema de vendas e entrega para loja de colchões",
+    modulos: ["catalogo", "orcamento", "clientes", "historico", "financeiro"],
+    dor: "acompanhar venda com entrega agendada sem lugar único para ver o que está pendente",
+  },
+  convenience: {
+    sistema: "Sistema de caixa e estoque para loja de conveniência",
+    modulos: ["pedidos", "estoque", "financeiro"],
+    dor: "fechar o caixa do turno conferindo de memória o que saiu",
+  },
+  nightclub: {
+    sistema: "Sistema de eventos e comandas para casa noturna",
+    modulos: ["agendamento", "pedidos", "equipe", "financeiro"],
+    dor: "controlar comanda, lista e acerto de equipe em papel na noite do evento",
+  },
 };
 
 /** Sinônimos em português caem no mesmo perfil da tag do OSM. */
 const APELIDOS: Record<string, string> = {
+  /**
+   * Tags que descrevem o MESMO negócio de um perfil que já existe.
+   *
+   * `pub` e `bar` são a mesma coisa para quem vende sistema, e o mapa usa as
+   * duas sem critério; `dojo` é academia de luta; `hardware` e `paint` são
+   * material de construção. Sem estas linhas o lead chega e é descartado por
+   * "nenhuma solução se encaixa", que não é verdade — é só a tag ser outra.
+   */
+  pub: "bar",
+  dojo: "sports_centre",
+  hardware: "doityourself",
+  paint: "doityourself",
+  acougue: "butcher",
+  hortifruti: "greengrocer",
+  sacolao: "greengrocer",
+  quitanda: "greengrocer",
+  agropecuaria: "agrarian",
+  papelaria: "stationery",
+  perfumaria: "cosmetics",
+  "artigos de festa": "party",
+  tecidos: "fabric",
+  armarinho: "fabric",
+  adega: "beverages",
+  doceria: "chocolate",
+  chocolateria: "chocolate",
+  colchao: "bed",
+  conveniencia: "convenience",
+  "casa noturna": "nightclub",
+  balada: "nightclub",
   oficina: "car_repair",
   mecanica: "car_repair",
   "auto center": "car_repair",

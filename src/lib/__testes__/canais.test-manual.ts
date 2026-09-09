@@ -159,14 +159,25 @@ function main() {
    * O teste 20 do plano. Lê o motor real de seleção da campanha e confirma que
    * ele recusa canal `instagram` explicitamente.
    */
+  /**
+   * A campanha continua barrando telefone fixo — o que mudou é ONDE.
+   *
+   * A trava `paraNovaCampanha` saiu de `disparo.ts` e foi para
+   * `oportunidade-comercial.ts`, junto com todas as outras: a campanha agora
+   * chama uma função em vez de manter a própria cópia das regras. Este teste
+   * segue o comportamento, e não o arquivo, porque o que não pode acontecer é
+   * a trava sumir — mudar de lugar é justamente o objetivo.
+   */
   ok(
     "20. campanha de WhatsApp nunca contém lead só de Instagram",
-    /canal === "instagram"/.test(disparo) && /fila manual/i.test(disparo),
+    /o\.canal === "instagram"/.test(disparo) && /fila manual/i.test(disparo),
     "elegiveis() recusa canal instagram",
   );
   ok(
     "20b. e a campanha exige paraNovaCampanha (barra telefone fixo)",
-    /paraNovaCampanha: true/.test(disparo),
+    /avaliarOportunidadeComercial/.test(disparo) &&
+      /paraNovaCampanha: true/.test(readFileSync("src/lib/oportunidade-comercial.ts", "utf8")),
+    "a trava mudou de arquivo, não desapareceu",
   );
 
   console.log("\n=== F. QUALIDADE NÃO VEM DE CANAL ===");

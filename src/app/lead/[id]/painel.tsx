@@ -12,6 +12,7 @@ import ClienteOculto from "@/components/cliente-oculto";
 import ExcluirLead from "@/components/excluir-lead";
 import Abas from "@/components/abas";
 import ThreadConversa from "@/components/thread-conversa";
+import OportunidadeLead from "@/components/oportunidade-lead";
 
 type SiteResumo = { id: string; slug: string; publicado: boolean } | null;
 
@@ -182,6 +183,8 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
           )}
         </p>
       </header>
+
+      <OportunidadeLead lead={lead} />
 
       <Abas<Aba>
         ativa={aba}

@@ -134,6 +134,18 @@ type Oportunidades = {
     comSistemaAplicavel: number;
     descartes: { motivo: string; rotulo: string; quantidade: number }[];
   };
+  /** O funil da máquina de vendas. Ver lib/oportunidade-comercial. */
+  funil: {
+    total: number;
+    comPotencialDeSolucao: number;
+    oportunidadesReais: number;
+    prontasParaWhatsapp: number;
+    prontasParaInstagram: number;
+    melhores: number;
+    aguardandoCanal: number;
+    reabremSozinhas: number;
+    bloqueios: { motivo: string; quantidade: number }[];
+  };
   motivosD: { motivo: string; rotulo: string; quantidade: number }[];
   enriquecimento: {
     semTelefone: number;
@@ -1106,10 +1118,25 @@ export default function Disparos() {
              * erra por 8x atrapalha em vez de informar. O total continua
              * visível, em segundo plano, na linha abaixo.
              */
-            { r: "🔥 Ambos", v: oportunidades.canais.ambos, destaque: true },
-            { r: "📱 WhatsApp", v: oportunidades.canais.whatsapp },
-            { r: "📸 Instagram", v: oportunidades.canais.instagram },
-            { r: "✅ Acionáveis", v: oportunidades.canais.acionaveis },
+            /**
+             * A MANCHETE É "QUANTAS DÁ PARA ABORDAR", não o tamanho da base.
+             *
+             * "Total de leads" já saiu do topo uma vez, e o que entrou no
+             * lugar — acionáveis por canal — ainda respondia a pergunta
+             * errada: ter WhatsApp não é estar pronto para receber campanha.
+             * Medido: 131 com canal de WhatsApp, e destas 123 já foram
+             * trabalhadas (42 com mensagem enviada, 35 dentro da janela de
+             * recontato, 21 que responderam). O número que decide o dia é o
+             * que sobra depois disso.
+             */
+            {
+              r: "📤 Prontas p/ campanha",
+              v: oportunidades.funil.prontasParaWhatsapp,
+              destaque: true,
+            },
+            { r: "🔥 Melhores", v: oportunidades.funil.melhores },
+            { r: "📸 Instagram (manual)", v: oportunidades.funil.prontasParaInstagram },
+            { r: "🔍 A enriquecer", v: oportunidades.funil.aguardandoCanal },
             { r: "Aprovadas", v: (painel.estados?.["aprovada"] ?? 0) + (painel.estados?.["na-fila"] ?? 0) },
             { r: "Enviadas", v: painel.estados?.["enviada"] ?? 0 },
           ].map((i) => (
@@ -1138,16 +1165,26 @@ export default function Disparos() {
        */}
       {oportunidades && (
         <p className="surgir -mt-4 mb-5 text-[12px] text-[var(--texto-3)]">
-          {oportunidades.canais.total} leads na base ·{" "}
+          {oportunidades.funil.total} leads na base ·{" "}
+          {oportunidades.funil.comPotencialDeSolucao} com potencial de solução ·{" "}
           <strong className="text-[var(--texto-2)]">
-            {oportunidades.canais.acionaveis} comercialmente utilizáveis
+            {oportunidades.funil.oportunidadesReais} oportunidades comerciais hoje
           </strong>
-          {oportunidades.canais.descartes.length > 0 && (
+          {/**
+           * "Potencial de solução" e "oportunidade" são perguntas diferentes, e
+           * a distância entre os dois números é a informação: quase toda a base
+           * tem ramo que comporta um sistema, e quase nada dela tem canal.
+           */}
+          {oportunidades.funil.reabremSozinhas > 0 && (
+            <> · ⏳ {oportunidades.funil.reabremSozinhas} voltam quando a janela de recontato fechar</>
+          )}
+          {oportunidades.funil.bloqueios.length > 0 && (
             <>
               {" "}
-              · fora da visão comercial:{" "}
-              {oportunidades.canais.descartes
-                .map((d) => `${d.quantidade} ${d.rotulo.toLowerCase()}`)
+              · fora da operação:{" "}
+              {oportunidades.funil.bloqueios
+                .slice(0, 4)
+                .map((d) => `${d.quantidade} ${d.motivo.toLowerCase()}`)
                 .join(" · ")}
             </>
           )}
@@ -1317,6 +1354,24 @@ export default function Disparos() {
             {oportunidades.enriquecimento.prioridadeBaixa} baixa. Sem telefone com
             potencial A: {oportunidades.enriquecimento.potencialAsemTelefone} · potencial B:{" "}
             {oportunidades.enriquecimento.potencialBsemTelefone}.
+          </p>
+
+          {/**
+           * O QUE AS FONTES GRATUITAS CONSEGUEM — dito antes de alguém contar
+           * com elas. Medido, não estimado: dos 4.280 estabelecimentos que o
+           * mapa aberto tem de Uberlândia, 171 publicam telefone; de 17 sites
+           * varridos, 3 números sobreviveram à validação (os outros eram
+           * páginas compartilhadas ou DDD de outra praça).
+           *
+           * "Precisam enriquecer" é a fila do trabalho, não uma previsão de
+           * quantos telefones vão aparecer. A tela precisa dizer isso, ou o
+           * número vira promessa.
+           */}
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--texto-3)]">
+            Esta fila é de TRABALHO, não uma previsão: as fontes gratuitas (mapa aberto e site
+            próprio) encontram poucos números, porque a maioria destes cadastros não publica
+            contato em lugar nenhum. Cada telefone gravado passa por validação de formato, DDD da
+            praça e checagem de que não pertence a outro lead.
           </p>
 
           {filaEnriq && filaEnriq.resumo.total > 0 && (

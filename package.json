@@ -60,7 +60,16 @@
     "relatorio:canais": "tsx src/scripts/relatorio-canais.ts",
     "relatorio:final": "tsx src/scripts/relatorio-final.ts",
     "test:probabilidade": "tsx src/lib/__testes__/probabilidade.test-manual.ts",
-    "relatorio:probabilidade": "tsx src/scripts/relatorio-probabilidade.ts"
+    "relatorio:probabilidade": "tsx src/scripts/relatorio-probabilidade.ts",
+    "relatorio:maquina": "tsx src/scripts/relatorio-maquina.ts",
+    "test:maquina": "tsx src/lib/__testes__/maquina.test-manual.ts",
+    "sondar:cobertura": "tsx src/scripts/sondar-cobertura.ts",
+    "test:recoleta": "tsx src/lib/__testes__/recoleta.test-manual.ts",
+    "auditoria:fontes": "tsx src/scripts/auditoria-fontes.ts",
+    "sondar:contato": "tsx src/scripts/sondar-contato.ts",
+    "test:procedencia": "tsx src/lib/__testes__/procedencia.test-manual.ts",
+    "enriquecer:site": "tsx src/scripts/enriquecer-site.ts",
+    "test:site": "tsx src/lib/__testes__/site.test-manual.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

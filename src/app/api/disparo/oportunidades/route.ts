@@ -30,6 +30,9 @@ export async function GET(request: Request) {
   const site = q.get("site");
   const prioridade = q.get("prioridade");
   const nivel = q.get("nivel");
+  const aba = q.get("aba");
+  const fila = q.get("fila");
+  const decisao = q.get("decisao");
 
   const filtro: FiltroOportunidade = {
     segmento: q.get("segmento") || undefined,
@@ -53,6 +56,29 @@ export async function GET(request: Request) {
     potencialForte: bool(q.get("potencialForte")),
     naoContatado: bool(q.get("naoContatado")),
     somenteNaPraca: bool(q.get("somenteNaPraca")),
+
+    /**
+     * A ABA do Modo Caça, e o motivo de ela existir aqui.
+     *
+     * A tela já mandava `fila` nesta rota — e a rota nunca leu o parâmetro.
+     * As abas trocavam o rótulo e devolviam sempre a mesma lista, o que dava
+     * a impressão de que a fila do Instagram estava vazia. Um filtro que a
+     * tela oferece e o servidor ignora é pior que filtro nenhum: ele mente
+     * com aparência de resposta.
+     */
+    aba:
+      aba === "melhores" || aba === "whatsapp" || aba === "instagram" || aba === "enriquecer"
+        ? aba
+        : undefined,
+    fila:
+      fila === "whatsapp" || fila === "instagram" || fila === "ambos" || fila === "acionaveis"
+        ? fila
+        : undefined,
+    decisao:
+      decisao === "quero-vender" || decisao === "vale-abordar" || decisao === "nao-prioritario"
+        ? decisao
+        : undefined,
+    esconderDescartados: bool(q.get("esconderDescartados")),
   };
 
   const quantidade = Math.min(Math.max(num(q.get("quantidade")) ?? 50, 1), 200);
