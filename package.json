@@ -69,7 +69,8 @@
     "sondar:contato": "tsx src/scripts/sondar-contato.ts",
     "test:procedencia": "tsx src/lib/__testes__/procedencia.test-manual.ts",
     "enriquecer:site": "tsx src/scripts/enriquecer-site.ts",
-    "test:site": "tsx src/lib/__testes__/site.test-manual.ts"
+    "test:site": "tsx src/lib/__testes__/site.test-manual.ts",
+    "sondar:nichos": "tsx src/scripts/sondar-nichos.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

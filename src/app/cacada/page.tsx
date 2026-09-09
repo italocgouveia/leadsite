@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Indicadores, Etiqueta, Vazio } from "@/components/central";
+import { NICHOS_QUENTES, NICHOS_DO_MAPA } from "@/lib/nichos-quentes";
 
 /**
  * 👥 ENCONTRAR CLIENTES — a tela de aquisição, e só ela.
@@ -195,14 +196,32 @@ export default function EncontrarClientesPage() {
           }}
           className="mt-3 flex flex-wrap items-end gap-2"
         >
-          <div className="min-w-[200px] flex-1">
+          <div className="min-w-[220px] flex-1">
             <label className="text-[11px] text-[var(--texto-3)]">Nicho</label>
+            {/**
+             * Lista + digitação livre, e não só uma das duas.
+             *
+             * A lista existe porque "que nicho eu busco?" é a pergunta que
+             * trava a tela, e porque a maioria dos termos que vêm à cabeça
+             * (transportadora, contabilidade) rende quase nada nesta fonte. A
+             * digitação continua porque a lista não pode virar uma cerca: o
+             * coletor aceita qualquer termo, e às vezes o certo é um que
+             * ninguém previu.
+             */}
             <input
               value={nicho}
               onChange={(e) => setNicho(e.target.value)}
+              list="nichos-sugeridos"
               placeholder="oficina mecânica"
               className="campo mt-0.5 w-full py-1.5 text-[13px]"
             />
+            <datalist id="nichos-sugeridos">
+              {NICHOS_QUENTES.map((n) => (
+                <option key={n.termo} value={n.termo}>
+                  {n.porque}
+                </option>
+              ))}
+            </datalist>
           </div>
           <div className="w-40">
             <label className="text-[11px] text-[var(--texto-3)]">Cidade</label>
@@ -235,6 +254,71 @@ export default function EncontrarClientesPage() {
             {buscando ? "Buscando…" : "🔎 ENCONTRAR"}
           </button>
         </form>
+
+        {/**
+         * OS NICHOS COM O NÚMERO MEDIDO AO LADO.
+         *
+         * Não é enfeite: "restaurante 16" e "transportadora 1" dizem, antes do
+         * clique, o que esperar da busca. Uma lista sem esse número trata os
+         * dois como equivalentes e transforma a diferença numa surpresa ruim
+         * depois de trinta segundos de espera.
+         */}
+        <div className="mt-3">
+          <p className="text-[11px] text-[var(--texto-3)]">
+            Rendem mais nesta fonte — o número é quantos têm contato publicado hoje em{" "}
+            {c?.praca?.split("/")[0] ?? "Uberlândia"}:
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {NICHOS_DO_MAPA.map((n) => (
+              <button
+                key={n.termo}
+                onClick={() => setNicho(n.termo)}
+                title={n.porque}
+                className={`rounded-full px-2.5 py-1 text-[12px] transition ${
+                  nicho === n.termo
+                    ? "bg-[var(--acao)] font-medium text-[#04201d]"
+                    : "bg-[var(--superficie-2)] hover:bg-[var(--linha)]"
+                }`}
+              >
+                {n.rotulo}
+                <span className="ml-1.5 tabular-nums opacity-60">{n.contataveis}</span>
+              </button>
+            ))}
+          </div>
+
+          {/**
+           * O AVISO QUE EVITA A BUSCA FRUSTRADA.
+           *
+           * Estes ramos compram bem — transportadora vive de cotação por
+           * WhatsApp — e o mapa aberto conhece 9 delas na cidade, com 1
+           * contato. Deixar isso implícito seria oferecer uma busca que volta
+           * vazia e parecer defeito do sistema.
+           */}
+          <details className="mt-2.5">
+            <summary className="cursor-pointer text-[11px] text-[var(--texto-3)]">
+              nichos que compram bem mas o mapa mal conhece
+            </summary>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {NICHOS_QUENTES.filter((n) => n.fonte === "receita").map((n) => (
+                <button
+                  key={n.termo}
+                  onClick={() => setNicho(n.termo)}
+                  title={`${n.porque} — ${n.mapeados} mapeados, ${n.contataveis} com contato`}
+                  className="rounded-full bg-[var(--superficie)] px-2.5 py-1 text-[12px] text-[var(--texto-3)] transition hover:bg-[var(--superficie-2)]"
+                >
+                  {n.rotulo}
+                  <span className="ml-1.5 tabular-nums opacity-60">{n.contataveis}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--texto-3)]">
+              O mapa aberto é cartografia: mapeia quem tem fachada. Transportadora, contabilidade e
+              despachante atendem por telefone num galpão ou numa sala, e ninguém os desenha. Esses
+              ramos têm CNAE próprio na Receita Federal — é de lá que eles viriam em volume, e o
+              importador ainda não existe.
+            </p>
+          </details>
+        </div>
 
         <p className="mt-2 text-[11px] leading-relaxed text-[var(--texto-3)]">
           A fonte é o mapa aberto (OpenStreetMap), grátis e sem chave. Ele cobre bem comércio de

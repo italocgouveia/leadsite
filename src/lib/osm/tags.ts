@@ -401,6 +401,32 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
     termos: ["loja de conveniência", "loja de conveniencia", "conveniência"],
     filtros: [{ chave: "shop", valor: "convenience" }],
   },
+  /**
+   * ---------------- ramos B2B que o mapa mal cobre ----------------
+   *
+   * Entram porque compram bem (transportadora vive de cotação por WhatsApp,
+   * locadora vive de reserva), e não porque a fonte os enxerga: medido em
+   * Uberlândia, `office=logistics` tem 9 estabelecimentos e 1 com contato.
+   *
+   * O mapa aberto é cartografia: quem tem fachada é mapeado, quem atende por
+   * telefone num galpão não é. Estes ramos só ganham volume de verdade com a
+   * fonte da Receita, onde eles têm CNAE próprio.
+   */
+  {
+    termos: ["transportadora", "logística", "logistica", "transporte de carga"],
+    filtros: [
+      { chave: "office", valor: "logistics" },
+      { chave: "office", valor: "transport" },
+    ],
+  },
+  {
+    termos: ["locadora de veículos", "locadora de veiculos", "aluguel de carros"],
+    filtros: [{ chave: "amenity", valor: "car_rental" }],
+  },
+  {
+    termos: ["coworking", "espaço compartilhado"],
+    filtros: [{ chave: "office", valor: "coworking" }],
+  },
 ];
 
 function normalizar(texto: string): string {
