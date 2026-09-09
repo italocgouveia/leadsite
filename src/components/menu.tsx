@@ -6,18 +6,18 @@ import { useEffect, useState } from "react";
 import { sair } from "@/app/entrar/acoes";
 
 /**
- * Quatro itens no dia a dia, o resto atrás de "Mais".
+ * A CENTRAL VEM PRIMEIRO, e o motivo não é estético.
  *
- * Eram doze, em dois grupos, e três deles ("Vender site", "Vender chatbot",
- * "Vender sistema") eram a MESMA lista de leads filtrada de outro jeito —
- * agora isso é um select dentro de Prospecção. Painel, Pipeline e Meus leads
- * também respondiam pedaços da mesma pergunta em telas separadas.
+ * A Central foi construída, subiu para produção e ficou invisível: o menu
+ * levava para `/prospeccao` e nada apontava para `/cacada`. Uma tela sem
+ * entrada no menu não existe para quem usa o sistema — deploy não é entrega.
  *
- * As telas antigas continuam existindo e funcionando; só saíram do caminho
- * principal. Apagar rota que alguém pode ter salvo no navegador seria trocar
- * confusão por link quebrado.
+ * `/prospeccao` continua no menu porque é a lista completa, com edição em
+ * massa, e continua útil. A diferença é a pergunta que cada uma responde: a
+ * Central diz "quem eu abordo agora"; a Prospecção mostra tudo.
  */
 const PRINCIPAIS = [
+  { href: "/cacada", rotulo: "Central", icone: "alvo" },
   { href: "/prospeccao", rotulo: "Prospecção", icone: "lista" },
   { href: "/", rotulo: "Buscar leads", icone: "busca" },
   { href: "/conversas", rotulo: "Conversas", icone: "balao" },
@@ -26,6 +26,8 @@ const PRINCIPAIS = [
 ] as const;
 
 const SECUNDARIOS = [
+  { href: "/materiais", rotulo: "Biblioteca", icone: "livro" },
+  { href: "/instagram", rotulo: "Instagram", icone: "camera" },
   { href: "/painel", rotulo: "Painel", icone: "grafico" },
   { href: "/pipeline", rotulo: "Pipeline", icone: "colunas" },
   { href: "/campanhas", rotulo: "Campanhas", icone: "foguete" },
@@ -45,6 +47,29 @@ function Icone({ nome, ativo }: { nome: string; ativo: boolean }) {
     strokeLinejoin: "round" as const,
     className: "shrink-0",
   };
+  if (nome === "alvo")
+    return (
+      <svg {...p}>
+        <circle cx="12" cy="12" r="8.5" />
+        <circle cx="12" cy="12" r="4.5" />
+        <circle cx="12" cy="12" r="1" />
+      </svg>
+    );
+  if (nome === "livro")
+    return (
+      <svg {...p}>
+        <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19v14H5.5A1.5 1.5 0 0 0 4 19.5z" />
+        <path d="M4 19.5A1.5 1.5 0 0 1 5.5 18H19v2H5.5" />
+      </svg>
+    );
+  if (nome === "camera")
+    return (
+      <svg {...p}>
+        <rect x="3.5" y="3.5" width="17" height="17" rx="4.5" />
+        <circle cx="12" cy="12" r="3.8" />
+        <path d="M16.8 7.2h.01" />
+      </svg>
+    );
   if (nome === "busca")
     return (
       <svg {...p}>
@@ -58,7 +83,7 @@ function Icone({ nome, ativo }: { nome: string; ativo: boolean }) {
         <path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
       </svg>
     );
-  if (nome === "engrenagens")
+  if (nome === "engrenagem")
     return (
       <svg {...p}>
         <rect x="3" y="3" width="7" height="7" rx="1.5" />
