@@ -62,10 +62,11 @@ export default function ConfiguracoesPage() {
       <section className="cartao p-5">
         <p className="text-[15px] font-semibold">IA</p>
         <div className="mt-2">
-          <Alternador rotulo="Ativada" ligado={estado.iaAtiva} onClick={alternarIA} />
-          <Alternador rotulo="Resposta automática" ligado={estado.iaAtiva} />
-          <Alternador rotulo="Classificação automática" ligado />
-          <Alternador rotulo="Transferência para humano" ligado />
+          <Alternador rotulo="IA ativa" ligado={estado.iaAtiva} onClick={alternarIA} />
+          <Alternador rotulo="Responder automaticamente" ligado={estado.iaAtiva} />
+          <Alternador rotulo="Identificar intenção" ligado />
+          <Alternador rotulo="Classificar interesse" ligado />
+          <Alternador rotulo="Transferir para humano" ligado />
         </div>
         <p className="mt-3 text-[11.5px] text-[var(--texto-3)]">
           Pausar a IA aqui é o mesmo botão do cabeçalho: ela para de responder em todas as
@@ -76,9 +77,11 @@ export default function ConfiguracoesPage() {
       <section className="cartao p-5">
         <p className="text-[15px] font-semibold">Comportamento</p>
         <div className="mt-2">
-          <Linha rotulo="Tempo mínimo de resposta" valor="1 s" />
+          <Alternador rotulo="Responder imediatamente" ligado />
+          <Alternador rotulo="Identificar orçamento" ligado />
+          <Alternador rotulo="Identificar agendamento" ligado />
+          <Alternador rotulo="Detectar pedido de humano" ligado />
           <Linha rotulo="Horário de atendimento" valor="seg–sex 8h–18h · sáb até 12h" />
-          <Linha rotulo="Fora do horário" valor="responde e registra" />
         </div>
         <div className="mt-3">
           <p className="text-[11px] text-[var(--texto-3)]">Mensagem de fallback</p>

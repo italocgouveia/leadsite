@@ -48,7 +48,7 @@ const GRUPOS: readonly Grupo[] = [
     ],
   },
   {
-    titulo: "Automação",
+    titulo: "Automação IA",
     itens: [
       { href: "/automacao", rotulo: "Visão geral", icone: "robo" },
       { href: "/automacao/conversas", rotulo: "Conversas IA", icone: "balao" },
@@ -292,7 +292,13 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
   };
 
   const links = (
-    <nav className="space-y-3">
+    /**
+     * O meio rola; cabeçalho e rodapé ficam. A barra é h-screen, e com o
+     * grupo Automação os links passaram da altura da tela — o excedente
+     * ficava cortado, com o rodapé (Conectado/Sair) fora de alcance.
+     * min-h-0 é o que permite ao filho flex encolher abaixo do conteúdo.
+     */
+    <nav className="rola-fino min-h-0 flex-1 space-y-3 overflow-y-auto pr-1.5">
       {GRUPOS.map((g) => (
         <div key={g.titulo}>
           <p className="px-2.5 pb-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-[var(--texto-3)]">

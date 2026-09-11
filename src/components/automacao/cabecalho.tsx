@@ -30,9 +30,9 @@ export default function CabecalhoAutomacao() {
     <header className="mb-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[24px] font-semibold tracking-tight">Automação de WhatsApp</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight">🤖 Automação IA</h1>
           <p className="mt-1 text-[13px] text-[var(--texto-3)]">
-            Seu assistente de IA responde seus clientes enquanto você cuida do negócio.
+            {apresentacao ? "Atendimento automático 24h, com uma pessoa a um clique." : "Seu assistente de IA responde seus clientes enquanto você cuida do negócio."}
           </p>
         </div>
         <span
@@ -48,7 +48,7 @@ export default function CabecalhoAutomacao() {
         <span className={estado.iaAtiva ? "text-[var(--verde)]" : "text-[var(--texto-3)]"}>
           {estado.iaAtiva ? "🟢 IA ativa" : "⚪ IA pausada"}
         </span>
-        <span className="text-[var(--verde)]">🟢 WhatsApp conectado — demonstração</span>
+        <span className="text-[var(--verde)]">🟢 WhatsApp conectado</span>
         <span className={estado.rodando ? "text-[var(--verde)]" : "text-[var(--texto-3)]"}>
           {estado.rodando ? "🟢 Atendimento automático" : "⚪ Atendimento em espera"}
         </span>
@@ -59,7 +59,7 @@ export default function CabecalhoAutomacao() {
       <div className="mt-3 flex flex-wrap gap-2">
         {estado.rodando ? (
           <button onClick={parar} className="btn-secundario">
-            ⏸ PARAR DEMONSTRAÇÃO
+            ⏸ PAUSAR
           </button>
         ) : (
           <button onClick={iniciar} className="btn-primario">
@@ -74,11 +74,11 @@ export default function CabecalhoAutomacao() {
           className={apresentacao ? "btn-primario" : "btn-secundario"}
           title="Esconde o técnico e destaca o resultado, para mostrar ao cliente"
         >
-          {apresentacao ? "✓ MODO APRESENTAÇÃO" : "MODO APRESENTAÇÃO"}
+          {apresentacao ? "🎬 APRESENTANDO" : "🎬 MODO APRESENTAÇÃO"}
         </button>
         {!apresentacao && (
-          <button onClick={reiniciar} className="btn-secundario" title="Volta os 100 contatos ao estado inicial">
-            REINICIAR
+          <button onClick={reiniciar} className="btn-secundario" title="Volta os 10 contatos ao estado inicial">
+            REINICIAR DEMONSTRAÇÃO
           </button>
         )}
       </div>
@@ -105,8 +105,7 @@ export default function CabecalhoAutomacao() {
 
       {!apresentacao && (
         <p className="mt-2 text-[11px] text-[var(--texto-3)]">
-          Conversas e contatos desta área são fictícios e não interferem na operação real. Nada
-          daqui chega ao banco, à fila ou ao WhatsApp.
+          Dados simulados. Nada daqui chega ao banco, à fila ou ao WhatsApp.
         </p>
       )}
     </header>

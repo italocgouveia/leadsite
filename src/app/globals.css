@@ -627,3 +627,28 @@ tr:hover > td > .btn-proposta {
     opacity: 0.1;
   }
 }
+
+/**
+ * BARRA DE ROLAGEM DO MENU — fina, sempre visível, e clara o bastante para
+ * dizer 'tem mais aqui embaixo'. A nativa do Windows é uma calha cinza
+ * de 17px que briga com o fundo preto; esta ocupa 6px e usa as mesmas
+ * opacidades de branco do resto da barra.
+ */
+.rola-fino {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-gutter: stable;
+}
+.rola-fino::-webkit-scrollbar {
+  width: 6px;
+}
+.rola-fino::-webkit-scrollbar-track {
+  background: transparent;
+}
+.rola-fino::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+.rola-fino:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.38);
+}

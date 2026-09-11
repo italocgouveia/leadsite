@@ -71,7 +71,7 @@
     "enriquecer:site": "tsx src/scripts/enriquecer-site.ts",
     "test:site": "tsx src/lib/__testes__/site.test-manual.ts",
     "sondar:nichos": "tsx src/scripts/sondar-nichos.ts",
-    "test:demo": "tsx src/lib/__testes__/demo.test-manual.ts"
+    "test:automation-demo": "tsx src/lib/__testes__/automation-demo.test-manual.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.118.0",

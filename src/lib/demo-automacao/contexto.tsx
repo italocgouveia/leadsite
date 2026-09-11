@@ -1,15 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  estadoInicial,
-  simularNovaMensagem,
-  responderIA,
-  assumirAtendimento,
-  devolverParaIA,
-  indicadores,
-  type EstadoDemo,
-} from "@/lib/demo-automacao/motor";
+import { estadoInicial, demoProvider, DEMO_CONTACT_LIMIT, type EstadoDemo, type Metricas } from "@/lib/demo-automacao/motor";
 
 /**
  * O ESTADO DA DEMONSTRAÇÃO, compartilhado entre as cinco telas.
@@ -31,7 +23,7 @@ type Contexto = {
   estado: EstadoDemo;
   digitandoEm: string | null;
   apresentacao: boolean;
-  metricas: ReturnType<typeof indicadores>;
+  metricas: Metricas;
   simular: () => void;
   assumir: (contatoId: string) => void;
   devolver: (contatoId: string) => void;
@@ -49,7 +41,8 @@ function carregar(): EstadoDemo {
     const bruto = localStorage.getItem(CHAVE);
     if (bruto) {
       const salvo = JSON.parse(bruto) as EstadoDemo;
-      if (Array.isArray(salvo.contatos) && salvo.contatos.length === 100) {
+      /** Estado salvo com outro tamanho (a versão de 100) é descartado: o limite é o limite. */
+      if (Array.isArray(salvo.contatos) && salvo.contatos.length === DEMO_CONTACT_LIMIT) {
         return { ...salvo, rodando: false };
       }
     }
@@ -91,12 +84,12 @@ export function DemoAutomacaoProvider({ children }: { children: ReactNode }) {
 
   const simular = useCallback(() => {
     setEstado((atual) => {
-      const { estado: proximo, contatoId } = simularNovaMensagem(atual);
+      const { estado: proximo, contatoId } = demoProvider.simulateIncomingMessage(atual);
       if (!contatoId) return atual;
       if (timer.current) clearTimeout(timer.current);
       setDigitandoEm(contatoId);
       timer.current = setTimeout(() => {
-        setEstado((e) => responderIA(e, contatoId));
+        setEstado((e) => demoProvider.sendSimulatedMessage(e, contatoId));
         setDigitandoEm(null);
       }, DIGITANDO_MS);
       return proximo;
@@ -129,8 +122,8 @@ export function DemoAutomacaoProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const assumir = useCallback((id: string) => setEstado((e) => assumirAtendimento(e, id)), []);
-  const devolver = useCallback((id: string) => setEstado((e) => devolverParaIA(e, id)), []);
+  const assumir = useCallback((id: string) => setEstado((e) => demoProvider.pauseConversation(e, id)), []);
+  const devolver = useCallback((id: string) => setEstado((e) => demoProvider.resumeConversation(e, id)), []);
   const alternarIA = useCallback(() => setEstado((e) => ({ ...e, iaAtiva: !e.iaAtiva })), []);
   const reiniciar = useCallback(() => {
     parar();
@@ -147,7 +140,7 @@ export function DemoAutomacaoProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const metricas = useMemo(() => indicadores(estado), [estado]);
+  const metricas = useMemo(() => demoProvider.getMetrics(estado), [estado]);
 
   const valor = useMemo<Contexto>(
     () => ({
