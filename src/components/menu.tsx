@@ -48,6 +48,16 @@ const GRUPOS: readonly Grupo[] = [
     ],
   },
   {
+    titulo: "Automação",
+    itens: [
+      { href: "/automacao", rotulo: "Visão geral", icone: "robo" },
+      { href: "/automacao/conversas", rotulo: "Conversas IA", icone: "balao" },
+      { href: "/automacao/contatos", rotulo: "Contatos", icone: "lista" },
+      { href: "/automacao/fluxos", rotulo: "Fluxos", icone: "fluxo" },
+      { href: "/automacao/configuracoes", rotulo: "Configurações", icone: "engrenagem" },
+    ],
+  },
+  {
     titulo: "Material",
     itens: [{ href: "/prospeccao", rotulo: "Central de prospecção", icone: "livro" }],
   },
@@ -79,6 +89,22 @@ function Icone({ nome, ativo }: { nome: string; ativo: boolean }) {
     strokeLinejoin: "round" as const,
     className: "shrink-0",
   };
+  if (nome === "robo")
+    return (
+      <svg {...p}>
+        <rect x="5" y="8" width="14" height="11" rx="3" />
+        <path d="M12 8V4M9 13h.01M15 13h.01M9 16h6" />
+      </svg>
+    );
+  if (nome === "fluxo")
+    return (
+      <svg {...p}>
+        <rect x="3" y="4" width="6" height="5" rx="1.5" />
+        <rect x="15" y="4" width="6" height="5" rx="1.5" />
+        <rect x="9" y="15" width="6" height="5" rx="1.5" />
+        <path d="M6 9v3h12V9M12 12v3" />
+      </svg>
+    );
   if (nome === "alvo")
     return (
       <svg {...p}>
@@ -217,8 +243,12 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
   // A página pública do cliente e a tela de login não levam o menu junto.
   if (escondido) return null;
 
+  /**
+   * Exato para a raiz e para /automacao, que tem filhos no proprio menu:
+   * com startsWith, "Visao geral" acenderia junto com "Conversas IA".
+   */
   const ehAtivo = (href: string) =>
-    href === "/" ? caminho === "/" : caminho.startsWith(href);
+    href === "/" || href === "/automacao" ? caminho === href : caminho.startsWith(href);
 
   const cabecalho = (
     <div className="mb-6 flex items-center gap-2.5 px-2.5 pt-2">
