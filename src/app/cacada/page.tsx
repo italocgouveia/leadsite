@@ -4,6 +4,7 @@ import ScraperContatos from "@/components/scraper-contatos";
 import { useRef, useState } from "react";
 import { Cabecalho, ErroDados, paginaRotina } from "@/components/rotina-ui";
 import { lerJson } from "@/lib/http-cliente";
+import { NICHOS_LOCAIS } from "@/lib/nichos-locais";
 type Resultado = { leads: { id: string; nome: string; cnpj: string | null; cidade: string | null; categoria: string | null; telefone: string | null; whatsapp: string | null; website: string | null; email: string | null; instagram: string | null }[]; aviso?: string };
 const UFS = "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" ");
 export default function BuscarLeads() {
@@ -24,11 +25,10 @@ export default function BuscarLeads() {
     <Cabecalho titulo="Buscar leads" descricao="Escolha quem você quer encontrar e onde quer prospectar." />
     <form ref={formulario} onSubmit={e => { e.preventDefault(); void buscar(); }} className="cartao p-6">
       <fieldset disabled={buscando} className="grid gap-5 sm:grid-cols-2 lg:grid-cols-[2fr_2fr_1fr]">
-        <label className="text-sm font-medium">Segmento<input required minLength={2} value={nicho} onChange={e => setNicho(e.target.value)} placeholder="Ex.: restaurantes, oficinas, salões" className="campo mt-2" /></label>
+        <label className="text-sm font-medium">Segmento<input required minLength={2} list="segmentos-prospeccao" value={nicho} onChange={e => setNicho(e.target.value)} placeholder="Digite ou escolha um nicho" className="campo mt-2" /><datalist id="segmentos-prospeccao">{NICHOS_LOCAIS.map(n => <option key={n.termo} value={n.termo} label={n.rotulo} />)}</datalist><span className="mt-1 block text-xs text-[var(--texto-3)]">{NICHOS_LOCAIS.length} nichos disponíveis. Você também pode digitar outro segmento.</span></label>
         <label className="text-sm font-medium">Cidade<input required minLength={2} value={cidade} onChange={e => setCidade(e.target.value)} placeholder="Ex.: Uberlândia" className="campo mt-2" /></label>
         <label className="text-sm font-medium">Estado<select value={estado} onChange={e => setEstado(e.target.value)} className="campo mt-2">{UFS.map(uf => <option key={uf}>{uf}</option>)}</select></label>
       </fieldset>
-      <div className="mt-4 flex flex-wrap items-center gap-2"><span className="text-xs text-[var(--texto-3)]">Sugestões:</span>{["Restaurantes", "Oficinas", "Salões de beleza", "Pousadas"].map(n => <button disabled={buscando} type="button" key={n} onClick={() => setNicho(n)} className="rounded-full border border-[var(--linha)] px-3 py-1.5 text-xs hover:bg-[var(--superficie-2)]">{n}</button>)}</div>
       <div className="mt-6 flex flex-wrap items-end justify-between gap-5 border-t border-[var(--linha)] pt-5"><label className="text-sm text-[var(--texto-2)]">Quantidade máxima<select disabled={buscando} className="campo mt-2" value={quantidade} onChange={e => setQuantidade(Number(e.target.value))}>{[10, 20, 40, 60].map(n => <option key={n} value={n}>{n} leads</option>)}</select></label><button disabled={buscando || nicho.trim().length < 2 || cidade.trim().length < 2} className="btn-primario" type="submit">{buscando ? "Buscando empresas…" : "Buscar leads →"}</button></div>
       <p className="mt-5 text-xs leading-relaxed text-[var(--texto-2)]">Fonte: dados abertos de CNPJ da Receita Federal. A busca usa empresas ativas por segmento e cidade; telefones podem estar desatualizados. Os resultados são salvos automaticamente em Meus leads.</p>
     </form>
