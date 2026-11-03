@@ -51,6 +51,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ erro: "Parâmetros inválidos" }, { status: 400 });
   }
 
+  if (params.usarIA && !process.env.GEMINI_API_KEY) {
+    return NextResponse.json(
+      { erro: "Configure GEMINI_API_KEY nas variáveis da Vercel para gerar mensagens personalizadas." },
+      { status: 503 },
+    );
+  }
+
   const r = await montarCampanha(params);
   return NextResponse.json({
     campanha: r.campanha,

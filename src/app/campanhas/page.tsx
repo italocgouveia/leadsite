@@ -123,11 +123,13 @@ export default function Campanhas() {
         body: JSON.stringify({
           nome: nome.trim() || nomeSugerido(segmento || undefined, cidade || undefined),
           leadIds: selecionados.map((l) => l.id),
+          usarIA: true,
           produto: abordagem || undefined,
           filtro: { segmento, cidade, faixa, soZap, abordagem },
         }),
       }).then((x) => x.json());
 
+      if (!r.ok && r.erro) throw new Error(r.erro);
       const pulados: { nome: string; motivo: string }[] = r.pulados ?? [];
       setAviso(
         `Campanha criada com ${r.criadas} mensagem(ns) em rascunho.` +
@@ -140,6 +142,8 @@ export default function Campanhas() {
       setEtapa(1);
       setNomeEditado(false);
       await Promise.all([carregarFacetas(), carregarCampanhas()]);
+    } catch (e) {
+      setAviso(e instanceof Error ? e.message : "Não foi possível criar a campanha.");
     } finally {
       setOcupado(false);
     }
@@ -310,7 +314,7 @@ export default function Campanhas() {
               </div>
 
               <p className="mb-2 text-[12px] uppercase tracking-[0.1em] text-[var(--texto-3)]">
-                Abordagem
+                O que oferecer
               </p>
               <div className="mb-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {OPCOES_ABORDAGEM.map((o) => (
@@ -336,6 +340,10 @@ export default function Campanhas() {
                   </button>
                 ))}
               </div>
+              <p className="-mt-3 mb-5 text-[12px] leading-relaxed text-[var(--texto-3)]">
+                A IA cria uma primeira mensagem personalizada para cada empresa. Ela fica em
+                rascunho para sua revisão antes de qualquer envio.
+              </p>
 
               <p className="mb-2 text-[12px] uppercase tracking-[0.1em] text-[var(--texto-3)]">
                 Cidade

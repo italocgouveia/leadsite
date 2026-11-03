@@ -16,21 +16,26 @@ export const OPCOES_ABORDAGEM: {
 }[] = [
   {
     valor: "",
-    rotulo: "Automático",
-    descricao: "Decide sozinho pelo que cada lead precisa",
+    rotulo: "Melhor oferta para cada lead",
+    descricao: "A IA escolhe entre WhatsApp, site ou sistema",
     emoji: "✨",
   },
-  { valor: "site", rotulo: "Site", descricao: "Página institucional para quem não tem", emoji: "🌐" },
+  {
+    valor: "site",
+    rotulo: "Site para captar clientes",
+    descricao: "Para empresas sem site ou com presença digital fraca",
+    emoji: "🌐",
+  },
   {
     valor: "chatbot",
-    rotulo: "Chatbot",
-    descricao: "Atendente de WhatsApp com IA",
+    rotulo: "Bot de WhatsApp",
+    descricao: "Atendimento automático, dúvidas e encaminhamento para uma pessoa",
     emoji: "🤖",
   },
   {
     valor: "sistema",
-    rotulo: "Sistema",
-    descricao: "Gestão sob medida: agenda, estoque, ordem de serviço",
+    rotulo: "Sistema ou automação",
+    descricao: "Organize tarefas como agenda, pedidos, estoque ou atendimento",
     emoji: "🗂️",
   },
 ];
