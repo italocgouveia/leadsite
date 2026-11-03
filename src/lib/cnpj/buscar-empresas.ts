@@ -2,6 +2,7 @@ import type { BuscaOsmParams, BuscaOsmResultado, LugarOsm } from "@/lib/osm/sear
 
 /** CNAEs mais usados para buscas de prospecção. A fonte só consulta empresas ativas. */
 const CNAES: { termos: string[]; codigos: string[]; rotulo: string; categoria: string }[] = [
+  { termos: ["loja de veículos", "loja de veiculos", "revenda de veículos", "revenda de veiculos", "concessionária", "concessionaria", "garagem de veículos", "garagem de veiculos"], codigos: ["4511101", "4511102", "4511103"], rotulo: "Lojas e revendas de veículos", categoria: "car" },
   { termos: ["transportadora", "transportadoras", "logística", "logistica", "transporte de carga"], codigos: ["4930201", "4930202", "4930203", "4930204"], rotulo: "Transportadoras", categoria: "transportadora" },
   { termos: ["restaurante", "restaurantes", "lanchonete", "lanchonetes"], codigos: ["5611201", "5611203", "5611204"], rotulo: "Restaurantes", categoria: "restaurant" },
   { termos: ["oficina", "oficinas", "mecânica", "mecanica", "auto center"], codigos: ["4520001", "4520002", "4520003", "4520007"], rotulo: "Oficinas mecânicas", categoria: "car_repair" },
