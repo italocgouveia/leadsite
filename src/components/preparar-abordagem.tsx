@@ -72,7 +72,7 @@ export default function PrepararAbordagem({ lead }: { lead: Lead }) {
             {a.abertura && (
               <div>
                 <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
-                  Abertura
+                  Mensagem pronta
                 </p>
                 <p className="mt-0.5 whitespace-pre-wrap text-[13px]">{a.abertura}</p>
               </div>

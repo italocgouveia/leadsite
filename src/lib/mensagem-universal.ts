@@ -1,4 +1,5 @@
 import type { Lead } from "@/lib/db";
+import { categoriaSingular } from "@/lib/categoria-nome";
 
 /**
  * A primeira abordagem: UMA copy para todos, só o nome da empresa muda.
@@ -34,6 +35,9 @@ export const MENSAGEM_BASE =
   "Olá, tudo bem? Falo da ICG Tech. Vi a empresa [NOME_EMPRESA] e queria te " +
   "mostrar uma ideia que pode ajudar vocês a melhorar alguns processos e " +
   "oportunidades comerciais. Posso te explicar rapidinho?";
+
+export const MENSAGEM_EXEMPLO_PERSONALIZADA =
+  "Oi, tudo bem? Aqui é o Ítalo, da ICG Tech. Vi a [NOME_EMPRESA] e pensei numa ideia de [OFERTA] pra vocês. Posso te explicar rapidinho?";
 
 /** O marcador que é trocado. Único ponto de variação entre um lead e outro. */
 export const PLACEHOLDER = "[NOME_EMPRESA]";
@@ -99,4 +103,40 @@ export function nomeParaMensagem(lead: Pick<Lead, "nome">): string {
  */
 export function montarMensagemUniversal(lead: Pick<Lead, "nome">): string {
   return MENSAGEM_BASE.split(PLACEHOLDER).join(nomeParaMensagem(lead));
+}
+
+export type ProdutoMensagem = "site" | "chatbot" | "sistema" | "site-e-chatbot";
+
+function ofertaEmUmaFrase(lead: Pick<Lead, "categoria">, produto: ProdutoMensagem): string {
+  const ramo = categoriaSingular(lead.categoria);
+  const automotivo = /ve[ií]cul|revenda|autom[oó]t|\bcar\b/i.test(`${lead.categoria ?? ""} ${ramo}`);
+
+  if (produto === "site-e-chatbot") {
+    return automotivo
+      ? "uma vitrine online pros veículos da loja e atendimento pelo WhatsApp"
+      : "um site e atendimento automático pelo WhatsApp";
+  }
+  if (produto === "chatbot") return "um atendimento automático no WhatsApp";
+  if (produto === "sistema") return `um sistema simples pra organizar a rotina de ${ramo}`;
+  return automotivo
+    ? "uma vitrine online pra apresentar os veículos da loja"
+    : `um site simples pra apresentar melhor ${ramo === "negócio" ? "o trabalho de vocês" : `o trabalho de ${ramo}`}`;
+}
+
+/** Mensagem curta por lead: nome, ramo e oferta; não inventa fatos sobre a empresa. */
+export function montarMensagemPersonalizada(
+  lead: Pick<Lead, "nome" | "categoria">,
+  produto: ProdutoMensagem = "site",
+): string {
+  const nomeLimpo = nomeParaMensagem(lead);
+  const nome = nomeLimpo === "de vocês" ? "empresa de vocês" : nomeLimpo;
+  const oferta = ofertaEmUmaFrase(lead, produto);
+  const variacoes = [
+    `Oi, tudo bem? Aqui é o Ítalo, da ICG Tech. Vi a ${nome} e queria te mostrar ${oferta}. Posso te mandar um exemplo?`,
+    `Oi! Sou o Ítalo, da ICG Tech. Tive uma ideia pra ${nome}: ${oferta}. Posso te explicar rapidinho?`,
+    `Oi! Ítalo, da ICG Tech aqui. Queria apresentar uma ideia pra ${nome}: ${oferta}. Faz sentido conversar?`,
+  ];
+  const chave = `${lead.nome ?? ""}|${lead.categoria ?? ""}|${produto}`;
+  const indice = [...chave].reduce((total, letra) => (total + letra.charCodeAt(0)) % variacoes.length, 0);
+  return variacoes[indice];
 }

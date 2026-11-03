@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { inArray } from "drizzle-orm";
 import { db, leads } from "@/lib/db";
 import { previaFiltrada } from "@/lib/disparo";
-import { montarMensagemUniversal, MENSAGEM_BASE } from "@/lib/mensagem-universal";
+import { montarMensagemPersonalizada, MENSAGEM_EXEMPLO_PERSONALIZADA, type ProdutoMensagem } from "@/lib/mensagem-universal";
+import { avaliar } from "@/lib/oportunidade";
 
 /**
  * Prévia da primeira abordagem, com leads reais do nicho.
@@ -22,6 +23,9 @@ const QUANTIDADE = 3;
 export async function GET(request: Request) {
   const u = new URL(request.url);
   const segmento = u.searchParams.get("segmento") || undefined;
+  const pedido = u.searchParams.get("produto");
+  const produtoForcado: ProdutoMensagem | undefined =
+    pedido === "site" || pedido === "chatbot" || pedido === "sistema" ? pedido : undefined;
 
   const preview = await previaFiltrada({ segmento });
   const idsAmostra = preview.leadIds.slice(0, QUANTIDADE);
@@ -48,12 +52,12 @@ export async function GET(request: Request) {
   const amostras = ordenados.map((lead) => ({
     nome: lead.nome,
     cidade: lead.cidade,
-    mensagem: montarMensagemUniversal(lead),
+    mensagem: montarMensagemPersonalizada(lead, produtoForcado ?? avaliar(lead).produto),
   }));
 
   /**
    * `base` deixa a tela provar a regra: as amostras são a mesma copy, e a
    * única diferença entre elas é o nome da empresa.
    */
-  return NextResponse.json({ amostras, base: MENSAGEM_BASE });
+  return NextResponse.json({ amostras, base: MENSAGEM_EXEMPLO_PERSONALIZADA });
 }

@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { db, geracaoFila, mensagens, leads, eventos, type Lead } from "@/lib/db";
+import { db, geracaoFila, mensagens, leads, eventos, campanhas, type Lead } from "@/lib/db";
 import { lerConfig, podeContatar } from "@/lib/fila";
 import { pontuar } from "@/lib/pontuacao";
 import { gerarMensagemProspeccao } from "@/lib/gen/mensagem-prospeccao";
-import { montarMensagemUniversal } from "@/lib/mensagem-universal";
+import { montarMensagemPersonalizada, type ProdutoMensagem } from "@/lib/mensagem-universal";
+import { avaliar } from "@/lib/oportunidade";
 
 /**
  * O motor da fila de geração por IA.
@@ -258,6 +259,11 @@ async function gerarItem(
 
   const [lead] = await db.select().from(leads).where(eq(leads.id, item.leadId)).limit(1);
   if (!lead) return fecharPulado(item, "Lead não existe mais.");
+  const [campanha] = await db
+    .select({ produto: campanhas.produto })
+    .from(campanhas)
+    .where(eq(campanhas.id, item.campanhaId))
+    .limit(1);
 
   const cfg = await lerConfig();
   // Mesma regra da tela: quem nao entraria na campanha nao vira mensagem.
@@ -285,10 +291,11 @@ async function gerarItem(
      * concorrência da fila o injetam — mas nenhum caminho de produção o usa
      * para a primeira mensagem.
      */
+    const produtoEscolhido = (campanha?.produto as ProdutoMensagem | null) ?? avaliar(lead).produto;
     const analise = gerar
       ? await gerar(lead, {})
       : {
-      mensagem: montarMensagemUniversal(lead),
+      mensagem: montarMensagemPersonalizada(lead, produtoEscolhido),
       /**
        * Sem produto e sem oportunidade: a primeira mensagem não escolhe o que
        * vender. Gravar um palpite aqui faria a revisão exibir uma decisão

@@ -1,10 +1,12 @@
 import type { Lead } from "@/lib/db/schema";
 import { avaliarSistema } from "@/lib/sistemas";
 import { probabilidadeComercial } from "@/lib/probabilidade";
+import { avaliar } from "@/lib/oportunidade";
 import { canalDoLead, instagramDoLead, temSiteProprio } from "@/lib/canais";
 import { categoriaSingular } from "@/lib/categoria-nome";
 import { PRACA, alcanceDoLead } from "@/lib/territorio";
 import { MATERIAIS, preencher, type Material, type CanalMaterial } from "@/lib/materiais";
+import { montarMensagemPersonalizada } from "@/lib/mensagem-universal";
 
 /**
  * ✨ PREPARAR ABORDAGEM — as quatro partes, montadas com dado real.
@@ -100,6 +102,20 @@ function processoDe(lead: Lead): string | null {
 }
 
 export function montarAbordagem(lead: Lead, materialForcado?: string): Abordagem {
+  if (!materialForcado) {
+    const oferta = avaliar(lead).produto;
+    const canal: CanalMaterial = lead.whatsapp ? "whatsapp" : lead.instagram ? "instagram" : "multicanal";
+    return {
+      abertura: montarMensagemPersonalizada(lead, oferta),
+      pergunta: "",
+      valor: "",
+      cta: "",
+      materialId: "personalizada-curta",
+      canal,
+      faltando: [],
+    };
+  }
+
   const material =
     (materialForcado ? MATERIAIS.find((m) => m.id === materialForcado) : null) ??
     escolherMaterial(lead);

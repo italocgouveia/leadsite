@@ -17,7 +17,7 @@ export const OPCOES_ABORDAGEM: {
   {
     valor: "",
     rotulo: "Melhor oferta para cada lead",
-    descricao: "A IA escolhe entre WhatsApp, site ou sistema",
+    descricao: "A ferramenta escolhe a oferta conforme os dados de cada lead",
     emoji: "✨",
   },
   {

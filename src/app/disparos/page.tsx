@@ -6,7 +6,7 @@ import type { Lead, StatusMensagem } from "@/lib/db/schema";
 import { categoriaSingular, iconeCategoria } from "@/lib/categoria-nome";
 import type { PreviaFiltrada } from "@/lib/disparo";
 import { OPCOES_ABORDAGEM, type Abordagem } from "@/lib/abordagem";
-import { MENSAGEM_BASE } from "@/lib/mensagem-universal";
+import { MENSAGEM_EXEMPLO_PERSONALIZADA } from "@/lib/mensagem-universal";
 
 /**
  * Disparos automáticos — a ÚNICA tela para preparar, iniciar, pausar e
@@ -1081,8 +1081,7 @@ export default function Disparos() {
         <div>
           <h1 className="text-[24px] font-semibold sm:text-[28px]">🚀 Disparos</h1>
           <p className="mt-1.5 text-[14px] text-[var(--texto-2)]">
-            Escolha o nicho e a abordagem — a IA identifica a oportunidade e escreve uma mensagem
-            para cada lead.
+            Escolha o nicho e a oferta. A ferramenta monta uma mensagem curta e personalizada para cada empresa.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -1908,18 +1907,16 @@ export default function Disparos() {
             <section className="cartao surgir mb-6 p-5">
               <p className="mb-1 text-[15px] font-semibold">Passo 2 — Abordagem</p>
               <div className="mt-3 rounded-[12px] bg-[var(--azul-fraco)] px-3.5 py-3">
-                <p className="text-[14px] font-medium text-[var(--azul)]">📣 Universal</p>
+                <p className="text-[14px] font-medium text-[var(--azul)]">📣 Personalizada por empresa</p>
                 <p className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--texto-2)]">
-                  Mensagem padrão para todos os leads. Personalização: nome da empresa.
+                  Usa o nome da empresa, o ramo e a oferta escolhida, com texto curto e natural.
                 </p>
               </div>
               <p className="mt-3 whitespace-pre-wrap rounded-[10px] bg-[var(--superficie)] px-3.5 py-3 text-[13px] leading-relaxed">
-                {MENSAGEM_BASE}
+                {MENSAGEM_EXEMPLO_PERSONALIZADA}
               </p>
               <p className="mt-2 text-[12px] text-[var(--texto-3)]">
-                Sem IA nesta etapa — a mesma copy para todos, trocando só{" "}
-                <code className="text-[var(--texto-2)]">[NOME_EMPRESA]</code>. A inteligência
-                comercial (dor, solução, proposta) entra depois que o lead responder.
+                Cada rascunho muda conforme o lead e a oferta. Você pode revisar e editar antes de aprovar.
               </p>
             </section>
           )}
@@ -1980,13 +1977,13 @@ export default function Disparos() {
                 <p className="mt-2 text-[12px] text-[var(--texto-3)]">
                   {quantidadeEfetiva > config.limiteDiario
                     ? `Seu teto de envio é ${config.limiteDiario}/dia — o que passar disso fica esperando na fila.`
-                    : `Cabe no seu teto de ${config.limiteDiario}/dia. É uma chamada de IA por lead.`}
+                    : `Cabe no seu teto de ${config.limiteDiario}/dia. Os textos são montados sem custo de IA.`}
                 </p>
               </div>
 
               <div className="mt-4 border-t border-[var(--linha)] pt-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-[13px] font-medium">Prévia das mensagens (geradas por IA)</p>
+                  <p className="text-[13px] font-medium">Prévia das mensagens personalizadas</p>
                   <button
                     onClick={gerarAmostras}
                     disabled={gerandoAmostras || preview.disponivel === 0}
@@ -2017,16 +2014,6 @@ export default function Disparos() {
                           </p>
                         ) : (
                           <>
-                            <dl className="mt-2 space-y-1 text-[12.5px]">
-                              <div className="flex gap-2">
-                                <dt className="shrink-0 text-[var(--texto-3)]">Oportunidade:</dt>
-                                <dd className="text-[var(--texto-2)]">{a.oportunidade}</dd>
-                              </div>
-                              <div className="flex gap-2">
-                                <dt className="shrink-0 text-[var(--texto-3)]">Solução:</dt>
-                                <dd className="font-medium text-[var(--azul)]">{a.solucao}</dd>
-                              </div>
-                            </dl>
                             <p className="mt-2 whitespace-pre-line border-t border-[var(--linha)] pt-2 text-[13.5px] leading-relaxed">
                               {a.mensagem}
                             </p>
@@ -2035,8 +2022,7 @@ export default function Disparos() {
                       </div>
                     ))}
                     <p className="text-[12px] text-[var(--texto-3)]">
-                      A IA analisa cada lead e escolhe a solução — sistema e automação vêm antes de
-                      site. Estes 3 são exemplo; ao aprovar, o lote inteiro é gerado um a um.
+                      Cada prévia usa os dados daquele lead e mostra o texto que ficará salvo para revisão.
                     </p>
                   </div>
                 )}
@@ -2062,8 +2048,7 @@ export default function Disparos() {
                 {preparando ? "Enfileirando…" : `GERAR MENSAGENS (${quantidadeEfetiva} leads)`}
               </button>
               <p className="mt-2 text-center text-[12px] text-[var(--texto-3)]">
-                Os leads entram numa fila no servidor. A geração roda sozinha, uma chamada de IA
-                por lead — você pode fechar esta aba. Nada é enviado nesta etapa.
+                Os rascunhos são montados na fila do servidor. Você pode fechar esta aba; nada é enviado nesta etapa.
               </p>
               {preview.disponivel === 0 && (
                 <p className="mt-2 text-[12.5px] text-[var(--texto-3)]">
@@ -2176,7 +2161,7 @@ export default function Disparos() {
 
               <p className="mt-3 rounded-[10px] bg-[var(--azul-fraco)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--azul)]">
                 {campanhaPronta.estado && campanhaPronta.estado.pendente > 30
-                  ? `${campanhaPronta.estado.pendente} leads na fila é muito para um dia: é uma chamada de IA por lead, e o teto de envio é ${config.limiteDiario}/dia. Vale cancelar e refazer com um lote menor.`
+                  ? `${campanhaPronta.estado.pendente} leads na fila é muito para um dia, e o teto de envio é ${config.limiteDiario}/dia. Vale cancelar e refazer com um lote menor.`
                   : "Cada lead recebe uma mensagem própria, gerada por IA — não é o mesmo texto repetido. A fila roda no servidor: fechar esta aba não interrompe nada."}
               </p>
 
