@@ -28,6 +28,12 @@ type MensagemCampanha = {
   criadoEm: string;
   campanhaNome: string | null;
 };
+type EstadoConsentimento = {
+  autorizado: boolean;
+  bloqueado: boolean;
+  atualizadoEm: string | null;
+  descricao: string | null;
+};
 
 type Aba = "geral" | "conversas" | "atividades" | "campanhas";
 
@@ -55,6 +61,10 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
   const [textoResposta, setTextoResposta] = useState("");
   const [enviandoResposta, setEnviandoResposta] = useState(false);
   const [eventos, setEventos] = useState<Evento[] | null>(null);
+  const [consentimento, setConsentimento] = useState<EstadoConsentimento | null>(null);
+  const [evidenciaConsentimento, setEvidenciaConsentimento] = useState("");
+  const [salvandoConsentimento, setSalvandoConsentimento] = useState(false);
+  const [erroConsentimento, setErroConsentimento] = useState<string | null>(null);
   const [mensagensCampanha, setMensagensCampanha] = useState<MensagemCampanha[] | null>(null);
   const [atendimentoHumano, setAtendimentoHumano] = useState(lead.atendimentoHumano);
 
@@ -83,6 +93,37 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
         });
     }
   }, [aba, thread, eventos, lead.id]);
+
+  useEffect(() => {
+    fetch(`/api/leads/${lead.id}/consentimento-whatsapp`)
+      .then((r) => r.json())
+      .then((d: EstadoConsentimento) => setConsentimento(d))
+      .catch(() => setConsentimento({ autorizado: false, bloqueado: false, atualizadoEm: null, descricao: null }));
+  }, [lead.id]);
+
+  async function atualizarConsentimento(acao: "registrar" | "revogar") {
+    if (!evidenciaConsentimento.trim()) {
+      setErroConsentimento("Descreva onde a pessoa autorizou ou pediu para parar.");
+      return;
+    }
+    setSalvandoConsentimento(true);
+    setErroConsentimento(null);
+    try {
+      const r = await fetch(`/api/leads/${lead.id}/consentimento-whatsapp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao, evidencia: evidenciaConsentimento.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erro ?? "Não foi possível atualizar o consentimento.");
+      setConsentimento(d);
+      setEvidenciaConsentimento("");
+    } catch (e) {
+      setErroConsentimento(e instanceof Error ? e.message : "Falha ao atualizar.");
+    } finally {
+      setSalvandoConsentimento(false);
+    }
+  }
 
   async function enviarResposta() {
     if (!textoResposta.trim()) return;
@@ -193,6 +234,42 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
       </header>
 
       <OportunidadeLead lead={lead} />
+
+      <section className="cartao mb-5 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[14px] font-semibold">Permissão para WhatsApp</h2>
+          <span className={`etiqueta ${consentimento?.autorizado && !consentimento.bloqueado ? "etiqueta-verde" : "etiqueta-neutra"}`}>
+            {consentimento?.autorizado && !consentimento.bloqueado ? "Consentimento registrado" : "Envio bloqueado"}
+          </span>
+        </div>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-[var(--texto-2)]">
+          Só registre quando a pessoa pediu ou aceitou receber mensagens pelo WhatsApp. Ter o número em um mapa ou cadastro público não é consentimento.
+        </p>
+        {consentimento?.descricao && (
+          <p className="mt-2 text-[12px] text-[var(--texto-3)]">
+            {consentimento.descricao}{consentimento.atualizadoEm ? ` · ${new Date(consentimento.atualizadoEm).toLocaleString("pt-BR")}` : ""}
+          </p>
+        )}
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={evidenciaConsentimento}
+            onChange={(e) => setEvidenciaConsentimento(e.target.value)}
+            placeholder="Origem: formulário, pedido em conversa…"
+            className="campo min-w-0 flex-1"
+            aria-label="Evidência do consentimento"
+          />
+          {consentimento?.autorizado && !consentimento.bloqueado ? (
+            <button onClick={() => void atualizarConsentimento("revogar")} disabled={salvandoConsentimento} className="btn-secundario">
+              Registrar pedido para parar
+            </button>
+          ) : (
+            <button onClick={() => void atualizarConsentimento("registrar")} disabled={salvandoConsentimento || consentimento?.bloqueado} className="btn-primario">
+              {salvandoConsentimento ? "Salvando…" : "Registrar permissão"}
+            </button>
+          )}
+        </div>
+        {erroConsentimento && <p role="alert" className="mt-2 text-[12px] text-[var(--vermelho)]">{erroConsentimento}</p>}
+      </section>
 
       <Abas<Aba>
         ativa={aba}

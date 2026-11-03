@@ -5,6 +5,7 @@ import { provedorDe } from "@/lib/providers";
 import { resolverSaudacao } from "@/lib/saudacao";
 // Reuso: a classificação celular/fixo e o nono dígito já vivem aqui.
 import { validarTelefone } from "@/lib/telefone";
+import { estadoConsentimentoWhatsApp } from "@/lib/consentimento-whatsapp";
 
 /** Separado para os testes conseguirem fixar a hora sem mexer no relógio. */
 const agoraDoEnvio = () => new Date();
@@ -585,6 +586,21 @@ export async function proximaDaFila(cfg: Config, opcoes?: OpcoesFila) {
 
     const [lead] = await db.select().from(leads).where(eq(leads.id, m.leadId)).limit(1);
     if (!lead) continue;
+
+    const consentimento = await estadoConsentimentoWhatsApp(lead.id);
+    if (!consentimento.autorizado || lead.naoContatar) {
+      // Mantém como rascunho para poder aprovar depois que o consentimento
+      // for registrado; nunca transforma ausência de prova em autorização.
+      await db
+        .update(mensagens)
+        .set({
+          status: "rascunho",
+          erro: "Aguardando consentimento explícito para contato pelo WhatsApp.",
+          atualizadoEm: new Date(),
+        })
+        .where(eq(mensagens.id, m.id));
+      continue;
+    }
 
     // Ignora a própria mensagem: ela é a candidata, não um bloqueio.
     const check = await podeContatar(lead, cfg, m.id);
