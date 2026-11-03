@@ -41,7 +41,7 @@ const TEXTOS: Record<
     titulo: "Vender chatbot",
     subtitulo: "Empresas com site de pé e movimento — o gargalo é responder.",
     vazio:
-      "Nenhum lead de chatbot ainda. Eles aparecem quando a busca traz empresas que JÁ têm site e WhatsApp.",
+      "Nenhum lead de chatbot ainda. Eles aparecem quando a busca traz empresas com site e número em formato celular; a conta WhatsApp não é verificada antes do contato.",
     cruzado: "Também precisa de site",
   },
 };
@@ -279,7 +279,7 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
                   : "bg-[var(--superficie)] text-[var(--texto-2)] hover:text-[var(--texto)]"
               }`}
             >
-              Só com WhatsApp
+              Só com número de celular possível
             </button>
 
             {filtrando && (
@@ -323,7 +323,7 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
           }
           className="mb-3 text-[13px] text-[var(--azul)] hover:underline"
         >
-          {marcados.size > 0 ? "Desmarcar todos" : `Selecionar todos com WhatsApp (${visiveis.filter((l) => l.whatsapp).length})`}
+          {marcados.size > 0 ? "Desmarcar todos" : `Selecionar todos com celular (${visiveis.filter((l) => l.whatsapp).length})`}
         </button>
       )}
 
@@ -412,7 +412,7 @@ export default function ListaOportunidades({ foco }: { foco: Foco }) {
                         rel="noreferrer"
                         className="btn-secundario"
                       >
-                        WhatsApp
+                        Testar WhatsApp
                       </a>
                     )}
                     {/**

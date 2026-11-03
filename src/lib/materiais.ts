@@ -52,7 +52,7 @@ export const ROTULO_CATEGORIA: Record<CategoriaMaterial, string> = {
 export type CanalMaterial = "whatsapp" | "instagram" | "ligacao" | "email" | "multicanal";
 
 export const ROTULO_CANAL_MATERIAL: Record<CanalMaterial, string> = {
-  whatsapp: "📱 WhatsApp",
+  whatsapp: "📱 WhatsApp possível · não verificado",
   instagram: "📸 Instagram",
   ligacao: "📞 Ligação",
   email: "📧 E-mail",

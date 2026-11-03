@@ -66,7 +66,7 @@ export default function OportunidadeLead({ lead }: { lead: Lead }) {
         : o.canal === "instagram"
           ? "Abordar pelo Instagram, à mão. Este lead não entra em campanha automática."
           : o.elegivel
-            ? "Pronto para campanha de WhatsApp, ou aborde à mão agora mesmo."
+        ? "Número em formato de celular. Teste se tem WhatsApp antes de iniciar uma campanha."
             : `Resolver antes: ${o.bloqueios[0]}`;
 
   return (
@@ -184,7 +184,7 @@ export default function OportunidadeLead({ lead }: { lead: Lead }) {
       <div className="mt-4 flex flex-wrap gap-2">
         {wa && (
           <a href={wa} target="_blank" rel="noopener noreferrer" className="btn-primario">
-            ABRIR POSSÍVEL WHATSAPP
+            TESTAR NÚMERO NO WHATSAPP
           </a>
         )}
         {!wa && validado && (

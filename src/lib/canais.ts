@@ -27,8 +27,8 @@ import { classificarPorte, ehCategoriaDeGrandePorte } from "@/lib/porte";
 export type Canal = "ambos" | "whatsapp" | "instagram" | "site" | "sem-canal";
 
 export const ROTULO_CANAL: Record<Canal, string> = {
-  ambos: "🔥 WhatsApp + Instagram",
-  whatsapp: "📱 WhatsApp",
+  ambos: "📱 Celular possível + Instagram",
+  whatsapp: "📱 Celular · WhatsApp não verificado",
   instagram: "📸 Instagram",
   site: "🌐 Só site — enriquecer",
   "sem-canal": "❌ Sem canal",

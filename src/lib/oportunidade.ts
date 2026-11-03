@@ -74,7 +74,7 @@ export function avaliar(lead: Lead): Oportunidade {
   }
 
   // --- canais de contato (sem isso não há abordagem) ---
-  if (lead.whatsapp) motivos.push({ texto: "WhatsApp disponível", bom: true });
+  if (lead.whatsapp) motivos.push({ texto: "Celular com link wa.me — conta não verificada", bom: true });
   else if (lead.telefone) motivos.push({ texto: "Telefone disponível", bom: true });
   else motivos.push({ texto: "Sem telefone — só dá para abordar presencialmente", bom: false });
 
@@ -129,7 +129,7 @@ export function avaliar(lead: Lead): Oportunidade {
   else if (oferta.produto === "chatbot") partes.push("site pronto");
   else partes.push("já tem site");
 
-  if (lead.whatsapp) partes.push("WhatsApp");
+  if (lead.whatsapp) partes.push("celular possível (WhatsApp não verificado)");
   // "só Instagram" já disse tudo — repetir vira "Só Instagram + Instagram ativo".
   if (lead.instagram && lead.statusSite !== "so-rede-social")
     partes.push("Instagram ativo");
