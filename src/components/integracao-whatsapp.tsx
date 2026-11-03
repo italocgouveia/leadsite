@@ -470,8 +470,9 @@ export default function IntegracaoWhatsapp() {
         </div>
 
         <p className="mb-3 text-[12px] text-[var(--texto-3)]">
-          Acrescente <code>?token=SEU_API_TOKEN</code> ao final — o valor está no seu
-          <code> .env.local</code>.
+          Configure <code>WEBHOOK_SECRET</code> nas variáveis da Vercel e autentique este
+          endereço com <code>?token=WEBHOOK_SECRET</code> (ou Bearer, se a bridge aceitar).
+          Não use <code>API_TOKEN</code>: ele é exclusivo da fila do n8n.
         </p>
 
         <p
