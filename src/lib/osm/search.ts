@@ -72,6 +72,9 @@ export type LugarOsm = {
   instagram?: string;
   facebook?: string;
   email?: string;
+  /** Identificador fiscal de fontes de cadastro empresarial. */
+  cnpj?: string;
+  razaoSocial?: string;
   /** Horário real mapeado no OSM — alimenta a seção de horários do site. */
   horarios?: string;
   /** Tags descritivas cruas, pra você conhecer o negócio antes de abordar. */

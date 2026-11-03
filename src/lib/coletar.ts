@@ -89,6 +89,8 @@ export async function buscarEGravar(
         instagram: lugar.instagram ?? null,
         facebook: lugar.facebook ?? null,
         email: lugar.email ?? null,
+        cnpj: lugar.cnpj ?? null,
+        razaoSocial: lugar.razaoSocial ?? null,
         // Horário vindo do OSM já é dado real — alimenta a seção do site.
         horarios: lugar.horarios ?? null,
         dadosOsm: lugar.extras ?? {},
