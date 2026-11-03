@@ -10,6 +10,7 @@ const Body = z.object({
   cidade: z.string().min(2),
   estado: z.string().min(2),
   bairro: z.string().optional(),
+  incluirSites: z.boolean().default(false),
   quantidade: z.number().int().min(1).max(60).default(20),
   /**
    * De onde vêm os leads. A TELA NÃO EXPÕE ISTO — só `osm` acontece na
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ erro: msg }, { status: 502 });
   }
 
+  const sitesParaColetar = resultado.salvos.filter(l => l.website && !l.telefone && !l.instagram && !l.email).length;
   const fonteNome = usandoPlaces ? "no Google" : "no OpenStreetMap";
 
   if (!resultado.salvos.length) {
@@ -77,7 +79,9 @@ export async function POST(request: Request) {
     totalContatavel: resultado.totalContatavel,
     // Explica o número: você pediu 20 e recebeu 4 porque só 4 dos 51 mapeados
     // têm contato. Sem isso, parece que a busca falhou.
-    aviso: resultado.buscaPorNome
+    aviso: sitesParaColetar > 0
+      ? `${sitesParaColetar} empresa(s) têm site, mas ainda não têm contato direto. Use o scraper para completar esses cadastros.`
+      : resultado.buscaPorNome
       ? "Esse nicho não tem categoria própria no OpenStreetMap, então busquei pelo nome do estabelecimento. O resultado costuma vir menor — para ramo de serviço, a fonte Google traz muito mais."
       : resultado.salvos.length < params.quantidade
         ? `${resultado.totalEncontrado} estabelecimento(s) desse nicho encontrados, mas só ${resultado.totalContatavel} têm telefone, Instagram ou e-mail. Mostro apenas os que dá pra abordar.`

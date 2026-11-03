@@ -109,6 +109,8 @@ export type BuscaOsmParams = {
    * as 20 vagas vão todas para leads que dá pra abordar.
    */
   soContataveis?: boolean;
+  /** Inclui sites sem telefone para o scraper procurar os canais publicados. */
+  incluirSites?: boolean;
 };
 
 export type BuscaOsmResultado = {
@@ -223,6 +225,7 @@ export async function buscarNoOsm({
   bairro,
   quantidade = 20,
   soContataveis = true,
+  incluirSites = false,
 }: BuscaOsmParams): Promise<BuscaOsmResultado> {
   const area = await localizarArea(
     bairro?.trim() ? `${bairro}, ${cidade}, ${estado}, Brasil` : `${cidade}, ${estado}, Brasil`,
@@ -243,7 +246,7 @@ export async function buscarNoOsm({
 
   const dados = await consultarOverpass(ql);
 
-  return extrairLugares(dados.elements ?? [], { quantidade, soContataveis, buscaPorNome });
+  return extrairLugares(dados.elements ?? [], { quantidade, soContataveis, incluirSites, buscaPorNome });
 }
 
 /**
@@ -261,8 +264,9 @@ export function extrairLugares(
   {
     quantidade = 20,
     soContataveis = true,
+    incluirSites = false,
     buscaPorNome = false,
-  }: { quantidade?: number; soContataveis?: boolean; buscaPorNome?: boolean } = {},
+  }: { quantidade?: number; soContataveis?: boolean; buscaPorNome?: boolean; incluirSites?: boolean } = {},
 ): BuscaOsmResultado {
   const todos: LugarOsm[] = [];
   const vistos = new Set<string>();
@@ -317,7 +321,7 @@ export function extrairLugares(
 
   // Contatáveis primeiro; entre eles, quem tem cadastro mais completo na frente.
   const ordenados = [...todos].sort((a, b) => pontos(b) - pontos(a));
-  const filtrados = soContataveis ? ordenados.filter(temContato) : ordenados;
+  const filtrados = soContataveis ? ordenados.filter(l => temContato(l) || (incluirSites && Boolean(l.website))) : ordenados;
 
   return {
     lugares: filtrados.slice(0, quantidade),

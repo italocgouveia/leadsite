@@ -124,6 +124,7 @@ export async function enriquecerPeloSite(
    * devolve o que gravar, e quem grava é o script, sob supervisão.
    */
   simular = true,
+  analisePronta?: AnaliseSite,
 ): Promise<ResultadoEnriquecimento> {
   const base: ResultadoEnriquecimento = {
     leadId: lead.id,
@@ -136,7 +137,7 @@ export async function enriquecerPeloSite(
 
   if (!lead.website) return { ...base, motivoFalha: "Lead sem site cadastrado" };
 
-  const a: AnaliseSite = await analisarSite(lead.website);
+  const a: AnaliseSite = analisePronta ?? await analisarSite(lead.website);
   if (!a.ok) return { ...base, motivoFalha: a.motivo };
 
   const pertence = siteParecerDaEmpresa(lead, a.host);

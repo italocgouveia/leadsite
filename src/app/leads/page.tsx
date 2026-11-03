@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ScraperContatos from "@/components/scraper-contatos";
 import { STATUS, corStatus, rotuloStatus } from "@/lib/etapa-simples";
 import { lerJson } from "@/lib/http-cliente";
 import { ErroDados } from "@/components/rotina-ui";
@@ -362,6 +363,11 @@ export default function Prospeccao() {
       <p className="mb-3 text-[13px] text-[var(--texto-3)]">
         {visiveis.length} de {leads.length}
       </p>
+
+      {!erroCarga && !carregando && visiveis.some(l => l.site) && <details className="mb-5">
+        <summary className="cursor-pointer text-sm text-[var(--azul)]">Completar contatos dos leads desta lista com scraper</summary>
+        <ScraperContatos leads={visiveis.map(l => ({ id: l.id, nome: l.empresa, website: l.site }))} aoAtualizar={itens => setLeads(atuais => atuais.map(l => ({ ...l, ...itens.find(r => r.id === l.id)?.contatos })))} />
+      </details>}
 
       {/* ──────────────────────────── lista ──────────────────────────── */}
       {carregando ? (
