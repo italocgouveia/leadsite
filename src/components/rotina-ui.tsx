@@ -1,6 +1,6 @@
 import Link from "next/link";
 export function Cabecalho({ titulo, descricao }: { titulo: string; descricao: string }) {
-  return <header className="mb-8"><p className="mb-2 text-xs font-medium uppercase tracking-[.18em] text-[var(--azul)]">ICG Tech / Prospecção</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{titulo}</h1><p className="mt-2 text-sm text-[var(--texto-2)]">{descricao}</p></header>;
+  return <header className="mb-8 border-b border-[var(--linha)] pb-6"><p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[.18em] text-[var(--azul)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--acao)] shadow-[0_0_10px_var(--acao)]" />ICG Tech <span className="text-[var(--texto-3)]">/</span> Prospecção</p><h1 className="text-3xl font-semibold tracking-tight sm:text-[38px]">{titulo}</h1><p className="mt-2 max-w-2xl text-[14px] text-[var(--texto-2)]">{descricao}</p></header>;
 }
 export function ErroDados({ mensagem, repetir }: { mensagem: string; repetir: () => void }) {
   return <div role="alert" className="cartao my-5 p-5"><p>{mensagem}</p><div className="mt-3 flex items-center gap-4"><button className="btn-secundario" onClick={repetir}>Tentar novamente</button><Link className="text-sm text-[var(--azul)]" href="/entrar">Acessar conta</Link></div></div>;

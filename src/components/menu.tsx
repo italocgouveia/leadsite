@@ -203,13 +203,12 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
     href === "/" || href === "/automacao" ? caminho === href : (caminho === href || caminho.startsWith(`${href}/`) || (href === "/rotina" && caminho === "/disparos"));
 
   const cabecalho = (
-    <div className="mb-6 flex items-center gap-2.5 px-2.5 pt-2">
-      {/* Marca: "i" em azul, como no perfil e no site. */}
-      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-[var(--linha)] bg-[var(--superficie)] text-[15px] font-bold tracking-tighter">
+    <div className="mb-7 flex items-center gap-3 px-2 pt-2">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-[#243b58] to-[#112035] text-[15px] font-bold tracking-tighter shadow-[0_8px_24px_-14px_rgba(90,150,230,.8)]">
         <span className="text-[var(--azul)]">i</span>CG
       </span>
       <span>
-        <span className="block text-[14px] font-semibold leading-tight tracking-tight">
+        <span className="block text-[14px] font-semibold leading-tight tracking-[0.02em]">
           ICG TECH
         </span>
         <span className="block text-[11px] uppercase tracking-[0.14em] text-[var(--texto-3)]">
@@ -227,10 +226,10 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
         href={i.href}
         aria-current={ativo ? "page" : undefined}
         onClick={() => setAberto(false)}
-        className={`flex items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-[14px] transition-colors ${
+        className={`flex items-center gap-3 rounded-xl border px-2.5 py-2.5 text-[13.5px] transition-colors ${
           ativo
-            ? "bg-[var(--azul-fraco)] font-medium text-[var(--azul)]"
-            : "text-[var(--texto-2)] hover:bg-[var(--superficie)] hover:text-[var(--texto)]"
+            ? "border-blue-300/15 bg-[var(--azul-fraco)] font-semibold text-[var(--azul)] shadow-[inset_0_1px_rgba(255,255,255,.04)]"
+            : "border-transparent text-[var(--texto-2)] hover:border-white/5 hover:bg-white/[0.035] hover:text-[var(--texto)]"
         }`}
       >
         <Icone nome={i.icone} ativo={ativo} />
@@ -281,8 +280,8 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
    * o navegador é que guarda as credenciais do Basic Auth.
    */
   const rodape = usuario ? (
-    <div className="mt-auto border-t border-[var(--linha)] px-2.5 pb-1 pt-3">
-      <p className="truncate text-[13px]">{usuario.nome ?? "Conectado"}</p>
+    <div className="mt-auto border-t border-[var(--linha)] px-2 pb-1 pt-4">
+      <p className="truncate text-[13px] font-medium">{usuario.nome ?? "Conectado"}</p>
       <p className="mb-2 truncate text-[11px] text-[var(--texto-3)]">{usuario.email}</p>
       <form action={sair}>
         <button
@@ -301,7 +300,7 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
   return (
     <>
       {/* topo só no celular */}
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-[var(--linha)] bg-[var(--fundo)]/70 px-4 backdrop-blur-xl lg:hidden">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-[var(--linha)] bg-[#0b121c]/90 px-4 backdrop-blur-xl lg:hidden">
         <button
           onClick={() => setAberto(true)}
           aria-label="Abrir menu"
@@ -330,7 +329,7 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
             className="fixed inset-0 z-40 bg-black/60 lg:hidden"
             onClick={() => setAberto(false)}
           />
-          <aside className="fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-[var(--linha)] bg-[var(--fundo)]/90 p-3 backdrop-blur-xl lg:hidden">
+          <aside className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[var(--linha)] bg-[#0b121c]/95 p-4 shadow-2xl backdrop-blur-xl lg:hidden">
             <button className="self-end p-2 text-sm" onClick={() => setAberto(false)} aria-label="Fechar menu">Fechar ×</button>
             {cabecalho}
             {links}
@@ -340,7 +339,7 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
       )}
 
       {/* desktop: fixo, sem animação nenhuma */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-[var(--linha)] bg-[var(--fundo)]/55 p-3 backdrop-blur-xl lg:sticky lg:top-0 lg:flex lg:h-screen">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--linha)] bg-[#0b121c]/84 p-4 backdrop-blur-2xl lg:sticky lg:top-0 lg:flex lg:h-screen">
         {cabecalho}
         {links}
         {rodape}

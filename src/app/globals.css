@@ -18,21 +18,21 @@
  */
 
 :root {
-  --fundo: #050505;
-  --fundo-2: #0b0b0d;
-  --superficie: rgba(255, 255, 255, 0.03);
-  --superficie-2: rgba(255, 255, 255, 0.06);
-  --linha: rgba(255, 255, 255, 0.09);
-  --linha-forte: rgba(255, 255, 255, 0.16);
+  --fundo: #080d14;
+  --fundo-2: #0d1420;
+  --superficie: #0e1621;
+  --superficie-2: #141f2d;
+  --linha: rgba(168, 190, 218, 0.12);
+  --linha-forte: rgba(168, 190, 218, 0.22);
 
   --texto: #ffffff;
-  --texto-2: rgba(255, 255, 255, 0.7);
-  --texto-3: rgba(255, 255, 255, 0.42);
+  --texto-2: #aab8ca;
+  --texto-3: #78879b;
 
-  --azul: #2f8fff;
-  --azul-escuro: #1a7bef;
-  --azul-fraco: rgba(47, 143, 255, 0.12);
-  --brilho-azul: 0 0 22px -3px rgba(47, 143, 255, 0.5);
+  --azul: #72aaff;
+  --azul-escuro: #4d91f2;
+  --azul-fraco: rgba(87, 151, 245, 0.13);
+  --brilho-azul: 0 8px 24px -12px rgba(62, 132, 230, 0.55);
 
   /**
    * A COR DE AÇÃO — turquesa, e separada do azul de propósito.
@@ -45,10 +45,10 @@
    * `--azul` não foi renomeado: ele aparece em centenas de lugares e trocar o
    * nome seria churn sem benefício. O que mudou é quem manda no botão.
    */
-  --acao: #14b8a6;
-  --acao-escuro: #0d9488;
-  --acao-fraco: rgba(20, 184, 166, 0.12);
-  --brilho-acao: 0 0 22px -3px rgba(20, 184, 166, 0.45);
+  --acao: #31d0bc;
+  --acao-escuro: #20b8a6;
+  --acao-fraco: rgba(49, 208, 188, 0.12);
+  --brilho-acao: 0 8px 24px -12px rgba(49, 208, 188, 0.6);
 
   --verde: #22c55e;
   --verde-fraco: rgba(34, 197, 94, 0.12);
@@ -59,7 +59,7 @@
   --ambar: #febc2e;
   --ambar-fraco: rgba(254, 188, 46, 0.12);
 
-  --raio: 10px;
+  --raio: 12px;
 }
 
 @theme inline {
@@ -81,12 +81,27 @@ html {
 }
 
 body {
-  background: var(--fundo);
+  background:
+    radial-gradient(ellipse at 15% 0%, rgba(43, 89, 149, 0.13), transparent 34rem),
+    radial-gradient(ellipse at 95% 28%, rgba(22, 118, 112, 0.07), transparent 30rem),
+    var(--fundo);
   color: var(--texto);
   font-family: var(--fonte-corpo), -apple-system, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   font-size: 15px;
   line-height: 1.5;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(178, 201, 230, 0.12) 0.65px, transparent 0.65px);
+  background-size: 22px 22px;
+  opacity: 0.12;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
 }
 
 h1,
@@ -95,6 +110,15 @@ h3 {
   font-family: var(--fonte-titulo), var(--fonte-corpo), sans-serif;
   font-weight: 600;
   letter-spacing: -0.03em;
+}
+
+h1 { line-height: 1.08; }
+
+a { text-underline-offset: 3px; }
+
+:focus-visible {
+  outline: 2px solid var(--azul);
+  outline-offset: 3px;
 }
 
 /* Seleção de texto na cor da marca. */
@@ -109,10 +133,10 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 100px;
-  background: var(--acao);
-  color: #04201d;
-  padding: 0.55rem 1.15rem;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #42dfca, #22bba9);
+  color: #06221f;
+  padding: 0.62rem 1.1rem;
   font-size: 14px;
   font-weight: 600;
   box-shadow: var(--brilho-acao);
@@ -135,9 +159,9 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 100px;
+  border-radius: 11px;
   border: 1px solid var(--linha);
-  background: var(--superficie);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012));
   color: var(--texto);
   padding: 0.55rem 1.15rem;
   font-size: 14px;
@@ -164,7 +188,7 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 100px;
+  border-radius: 11px;
   border: 1px solid rgba(255, 95, 87, 0.45);
   background: var(--vermelho-fraco);
   color: var(--vermelho);
@@ -250,7 +274,7 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 100px;
+  border-radius: 11px;
   background: var(--verde);
   color: #04140a;
   padding: 0.55rem 1.15rem;
@@ -274,8 +298,8 @@ h3 {
   width: 100%;
   border-radius: var(--raio);
   border: 1px solid var(--linha);
-  background: var(--superficie);
-  padding: 0.55rem 0.8rem;
+  background: #0b131e;
+  padding: 0.65rem 0.85rem;
   font-size: 14px;
   color: var(--texto);
   outline: none;
@@ -405,9 +429,10 @@ tr:hover > td > .btn-proposta {
   position: relative;
   background: var(--superficie);
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: 16px;
   background-clip: padding-box;
-  backdrop-filter: blur(14px) saturate(120%);
+  box-shadow: 0 14px 38px -28px rgba(0, 0, 0, 0.9), inset 0 1px rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(14px) saturate(115%);
 }
 
 .cartao::before,
@@ -420,9 +445,9 @@ tr:hover > td > .btn-proposta {
   padding: 1px;
   background: linear-gradient(
     160deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(255, 255, 255, 0.07) 42%,
-    rgba(47, 143, 255, 0.28) 100%
+    rgba(180, 204, 235, 0.2) 0%,
+    rgba(180, 204, 235, 0.07) 46%,
+    rgba(72, 137, 222, 0.2) 100%
   );
   /**
    * Ordem importa: os atalhos `-webkit-mask` / `mask` RESETAM o composite,
@@ -454,9 +479,9 @@ tr:hover > td > .btn-proposta {
 .cartao-interativo:hover::before {
   background: linear-gradient(
     160deg,
-    rgba(255, 255, 255, 0.4) 0%,
-    rgba(47, 143, 255, 0.35) 45%,
-    rgba(47, 143, 255, 0.7) 100%
+    rgba(208, 224, 246, 0.4) 0%,
+    rgba(92, 154, 234, 0.35) 45%,
+    rgba(92, 154, 234, 0.62) 100%
   );
 }
 
@@ -478,7 +503,7 @@ tr:hover > td > .btn-proposta {
 /* ------------------------------------------------------------ funil/colunas */
 
 .coluna-funil {
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(9, 16, 25, 0.82);
   border: 1px solid var(--linha);
   backdrop-filter: blur(10px);
 }
@@ -587,6 +612,30 @@ tr:hover > td > .btn-proposta {
   background-size: 800px 100%;
   animation: brilho 1.3s linear infinite;
   border-radius: 12px;
+}
+
+/* Superfícies e controles usados em diferentes módulos. */
+hr { border-color: var(--linha); }
+
+thead th {
+  color: var(--texto-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+tbody tr { transition: background-color 140ms ease; }
+tbody tr:hover { background-color: rgba(128, 162, 205, 0.055); }
+
+input, textarea, select { accent-color: var(--acao); }
+input[type="checkbox"] { width: 15px; height: 15px; }
+
+::placeholder { color: #69788c; }
+
+@media (max-width: 640px) {
+  .cartao, .cartao-apple { border-radius: 14px; }
+  .btn-primario, .btn-secundario, .btn-whatsapp { min-height: 42px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
