@@ -1,24 +1,24 @@
 import type { BuscaOsmParams, BuscaOsmResultado, LugarOsm } from "@/lib/osm/search";
 
 /** CNAEs mais usados para buscas de prospecção. A fonte só consulta empresas ativas. */
-const CNAES: { termos: string[]; codigos: string[]; rotulo: string }[] = [
-  { termos: ["transportadora", "transportadoras", "logística", "logistica", "transporte de carga"], codigos: ["4930201", "4930202", "4930203", "4930204"], rotulo: "Transportadoras" },
-  { termos: ["restaurante", "restaurantes", "lanchonete", "lanchonetes"], codigos: ["5611201", "5611203", "5611204"], rotulo: "Restaurantes" },
-  { termos: ["oficina", "oficinas", "mecânica", "mecanica", "auto center"], codigos: ["4520001", "4520002", "4520003", "4520007"], rotulo: "Oficinas mecânicas" },
-  { termos: ["salão de beleza", "salao de beleza", "salões de beleza", "cabeleireiro", "barbearia"], codigos: ["9602501", "9602502"], rotulo: "Salões de beleza" },
-  { termos: ["pousada", "pousadas", "hotel", "hotéis", "hoteis"], codigos: ["5510801", "5510802", "5590601"], rotulo: "Hospedagem" },
-  { termos: ["clínica", "clinica", "clínicas", "clinicas", "consultório", "consultorio"], codigos: ["8630501", "8630502", "8630503", "8630504", "8630506", "8630507", "8630599"], rotulo: "Clínicas e consultórios" },
-  { termos: ["dentista", "dentistas", "odontologia"], codigos: ["8630504"], rotulo: "Consultórios odontológicos" },
-  { termos: ["contabilidade", "contador", "contadores"], codigos: ["6920601", "6920602"], rotulo: "Contabilidade" },
-  { termos: ["advocacia", "advogado", "advogados"], codigos: ["6911701"], rotulo: "Serviços jurídicos" },
-  { termos: ["academia", "academias", "pilates"], codigos: ["9313100"], rotulo: "Academias" },
-  { termos: ["imobiliária", "imobiliaria", "imobiliárias", "imobiliarias"], codigos: ["6821801", "6821802"], rotulo: "Imobiliárias" },
+const CNAES: { termos: string[]; codigos: string[]; rotulo: string; categoria: string }[] = [
+  { termos: ["transportadora", "transportadoras", "logística", "logistica", "transporte de carga"], codigos: ["4930201", "4930202", "4930203", "4930204"], rotulo: "Transportadoras", categoria: "transportadora" },
+  { termos: ["restaurante", "restaurantes", "lanchonete", "lanchonetes"], codigos: ["5611201", "5611203", "5611204"], rotulo: "Restaurantes", categoria: "restaurant" },
+  { termos: ["oficina", "oficinas", "mecânica", "mecanica", "auto center"], codigos: ["4520001", "4520002", "4520003", "4520007"], rotulo: "Oficinas mecânicas", categoria: "car_repair" },
+  { termos: ["salão de beleza", "salao de beleza", "salões de beleza", "cabeleireiro", "barbearia"], codigos: ["9602501", "9602502"], rotulo: "Salões de beleza", categoria: "hairdresser" },
+  { termos: ["pousada", "pousadas", "hotel", "hotéis", "hoteis"], codigos: ["5510801", "5510802", "5590601"], rotulo: "Hospedagem", categoria: "hotel" },
+  { termos: ["clínica", "clinica", "clínicas", "clinicas", "consultório", "consultorio"], codigos: ["8630501", "8630502", "8630503", "8630504", "8630506", "8630507", "8630599"], rotulo: "Clínicas e consultórios", categoria: "clinic" },
+  { termos: ["dentista", "dentistas", "odontologia"], codigos: ["8630504"], rotulo: "Consultórios odontológicos", categoria: "dentist" },
+  { termos: ["contabilidade", "contador", "contadores"], codigos: ["6920601", "6920602"], rotulo: "Contabilidade", categoria: "accountant" },
+  { termos: ["advocacia", "advogado", "advogados"], codigos: ["6911701"], rotulo: "Serviços jurídicos", categoria: "lawyer" },
+  { termos: ["academia", "academias", "pilates"], codigos: ["9313100"], rotulo: "Academias", categoria: "fitness_centre" },
+  { termos: ["imobiliária", "imobiliaria", "imobiliárias", "imobiliarias"], codigos: ["6821801", "6821802"], rotulo: "Imobiliárias", categoria: "estate_agent" },
 ];
 
 type Linha = {
   cnpj: string; razao_social?: string; nome_fantasia?: string | null;
   municipio?: string; uf?: string; telefone?: string | null; email?: string | null;
-  url?: string; cnae_fiscal_descricao?: string;
+  url?: string; cnae_fiscal_descricao?: string; porte?: string;
 };
 type Pagina = { resultados?: Linha[]; total?: number; fonte?: { nome?: string; base?: string }; };
 
@@ -81,10 +81,15 @@ export async function buscarEmpresasCnpj(params: BuscaOsmParams): Promise<BuscaO
       if (!cnpj || !nome) continue;
       todos.push({
         osmId: `cnpj:${cnpj}`, idExterno: `cnpj:${cnpj}`, cnpj,
-        nome, razaoSocial: item.razao_social?.trim(), categoria: item.cnae_fiscal_descricao || grupo.rotulo,
+        nome, razaoSocial: item.razao_social?.trim(), categoria: grupo.categoria,
         cidade: item.municipio || params.cidade, estado: item.uf || params.estado,
         telefone: telefoneLimpo(item.telefone), email: item.email?.trim() || undefined,
-        extras: { fonte: "Dados abertos CNPJ da Receita Federal", cnae, ...(item.url ? { urlCadastro: item.url } : {}) },
+        extras: {
+          fonte: "Dados abertos CNPJ da Receita Federal", cnae, segmento: grupo.rotulo,
+          ...(item.porte ? { porteReceita: item.porte } : {}),
+          ...(item.cnae_fiscal_descricao ? { atividadeReceita: item.cnae_fiscal_descricao } : {}),
+          ...(item.url ? { urlCadastro: item.url } : {}),
+        },
       });
     }
   }

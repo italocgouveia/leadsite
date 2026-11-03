@@ -45,7 +45,8 @@ export default function OportunidadeLead({ lead }: { lead: Lead }) {
     origem: (lead.telefoneOrigem as OrigemTelefone | null) ?? "cadastro",
     uf: lead.estado,
   });
-  const wa = linkWhatsapp(tel);
+  const wa = procedencia.possivelWhatsapp ? linkWhatsapp(tel) : null;
+  const dddDiferente = procedencia.motivos.find((m) => m.startsWith("DDD "));
   const site = temSiteProprio(lead) ? lead.website : null;
 
   const fatos = prob.positivos.filter((m) => m.tipo === "fato").map((m) => m.texto);
@@ -90,8 +91,9 @@ export default function OportunidadeLead({ lead }: { lead: Lead }) {
             tom={procedencia.possivelWhatsapp ? "acao" : "neutro"}
             titulo={procedencia.motivos.join(" · ")}
           >
-            {validado.tipo === "celular" ? "📱 possível celular" : "📞 telefone fixo"} ·{" "}
-            {procedencia.confianca}% de confiança
+            {validado.tipo === "celular" ? "📱 possível celular" : "📞 telefone fixo"}
+            {procedencia.origem === "receita" ? " · cadastro Receita" : ""}
+            {dddDiferente ? " · DDD fora da UF" : ""} · {procedencia.confianca}% de confiança
           </Etiqueta>
         )}
       </div>
@@ -171,14 +173,23 @@ export default function OportunidadeLead({ lead }: { lead: Lead }) {
         <p className="text-[10.5px] font-medium uppercase tracking-wider text-[var(--texto-3)]">
           Próximo passo
         </p>
-        <p className="mt-1 text-[13px] text-[var(--texto-2)]">{proximoPasso}</p>
+        <p className="mt-1 text-[13px] text-[var(--texto-2)]">
+          {!encaixe.serve
+            ? "Sem produto cadastrado para este ramo. Só retome se a ICG confirmar que atende empresas de logística."
+            : proximoPasso}
+        </p>
       </div>
 
       {/* ───────────────── ações ───────────────── */}
       <div className="mt-4 flex flex-wrap gap-2">
         {wa && (
           <a href={wa} target="_blank" rel="noopener noreferrer" className="btn-primario">
-            ABRIR WHATSAPP
+            ABRIR POSSÍVEL WHATSAPP
+          </a>
+        )}
+        {!wa && validado && (
+          <a href={`tel:${validado.e164}`} className="btn-secundario">
+            LIGAR {validado.tipo === "fixo" ? "PARA O FIXO" : "PARA CONFIRMAR"}
           </a>
         )}
         {ig && (

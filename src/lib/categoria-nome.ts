@@ -11,6 +11,7 @@
 type Nomes = { singular: string; plural: string };
 
 const MAPA: Record<string, Nomes> = {
+  transportadora: { singular: "transportadora", plural: "transportadoras" },
   // alimentação
   restaurant: { singular: "restaurante", plural: "restaurantes" },
   fast_food: { singular: "lanchonete", plural: "lanchonetes" },

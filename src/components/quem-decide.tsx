@@ -93,6 +93,17 @@ export default function QuemDecide({ lead }: { lead: Lead }) {
         </p>
       )}
 
+      {lead.dadosOsm?.urlCadastro && (
+        <a
+          href={lead.dadosOsm.urlCadastro}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block text-[12.5px] text-[var(--azul)]"
+        >
+          Ver cadastro público da empresa →
+        </a>
+      )}
+
       {jaConsultado && socios.length === 0 && (
         <p className="mt-4 rounded-[10px] bg-[var(--superficie)] px-3.5 py-2.5 text-[13px] text-[var(--texto-2)]">
           Sem quadro societário — costuma ser MEI ou empresário individual.

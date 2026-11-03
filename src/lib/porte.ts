@@ -102,7 +102,7 @@ const REDES = [
   "localiza", "movida", "unidas", "bosch car service", "jeep", "chevrolet",
   "volkswagen", "toyota", "hyundai", "fiat", "renault", "honda automoveis",
   // pet e outros
-  "petz", "cobasi", "petland", "correios", "shopping center",
+  "petz", "cobasi", "petland", "correios", "shopping center", "gpa",
 ];
 
 /**

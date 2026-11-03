@@ -3,6 +3,7 @@ import type { Lead } from "@/lib/db/schema";
 import { avaliar } from "@/lib/oportunidade";
 import { categoriaPlural, ondeFica } from "@/lib/categoria-nome";
 import { nichoDe, type Nicho } from "@/lib/nichos";
+import { temCelularPlausivel } from "@/lib/canais";
 
 /**
  * Mensagem de abordagem montada NA HORA, sem chamar a IA.
@@ -209,7 +210,7 @@ export function montarProposta(lead: Lead, temPrevia = false): Proposta {
 
 /** Link do WhatsApp já com a mensagem embutida. */
 export function linkWhatsappComMensagem(lead: Lead, mensagem: string): string | null {
-  if (!lead.whatsapp) return null;
+  if (!lead.whatsapp || !temCelularPlausivel(lead)) return null;
   const numero = lead.whatsapp.match(/wa\.me\/(\d+)/)?.[1];
   if (!numero) return null;
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`;

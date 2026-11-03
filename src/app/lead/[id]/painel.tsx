@@ -13,6 +13,8 @@ import ExcluirLead from "@/components/excluir-lead";
 import Abas from "@/components/abas";
 import ThreadConversa from "@/components/thread-conversa";
 import OportunidadeLead from "@/components/oportunidade-lead";
+import { telefoneDoLead, validarTelefone } from "@/lib/telefone";
+import { validarComProcedencia } from "@/lib/telefone-procedencia";
 
 type SiteResumo = { id: string; slug: string; publicado: boolean } | null;
 
@@ -36,6 +38,11 @@ type Aba = "geral" | "conversas" | "atividades" | "campanhas";
 export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResumo }) {
   const router = useRouter();
   const o = avaliar(lead);
+  const contatoTelefone = validarTelefone(telefoneDoLead(lead));
+  const telefonePodeUsarWhatsApp = validarComProcedencia(telefoneDoLead(lead), {
+    origem: (lead.telefoneOrigem as "receita" | "cadastro" | "osm" | "site-proprio" | "places" | "manual" | "desconhecida" | null) ?? "cadastro",
+    uf: lead.estado,
+  }).possivelWhatsapp;
 
   const [propostaAberta, setPropostaAberta] = useState(false);
   const [etapa, setEtapa] = useState<Etapa>(lead.etapa);
@@ -174,6 +181,7 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
           {lead.bairro ? `${lead.bairro}, ` : ""}
           {lead.cidade}
           {lead.estado ? ` · ${lead.estado}` : ""}
+          {lead.dadosOsm?.porteReceita ? ` · Porte na Receita: ${lead.dadosOsm.porteReceita}` : ""}
           {lead.nota != null && (
             <span className="text-[var(--ambar)]">
               {" · "}
@@ -303,9 +311,14 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
         </button>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          {lead.whatsapp && (
+          {lead.whatsapp && telefonePodeUsarWhatsApp && (
             <a href={lead.whatsapp} target="_blank" rel="noreferrer" className="btn-whatsapp">
-              WhatsApp
+              Possível WhatsApp
+            </a>
+          )}
+          {contatoTelefone && !telefonePodeUsarWhatsApp && (
+            <a href={`tel:${contatoTelefone.e164}`} className="btn-secundario">
+              Ligar {contatoTelefone.tipo === "fixo" ? "para o fixo" : "para confirmar número"}
             </a>
           )}
           {lead.instagram && (

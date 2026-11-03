@@ -10,6 +10,7 @@ import {
   type ResultadoTeste,
 } from "@/lib/teste-oculto";
 import { linkWhatsappComMensagem } from "@/lib/proposta";
+import { temCelularPlausivel } from "@/lib/canais";
 
 /**
  * Cliente oculto, em duas etapas.
@@ -81,13 +82,12 @@ export default function ClienteOculto({ lead }: { lead: Lead }) {
     setTimeout(() => setCopiado(null), 1600);
   }
 
-  if (!lead.whatsapp) {
+  if (!lead.whatsapp || !temCelularPlausivel(lead)) {
     return (
       <section className="cartao surgir mb-6 p-5">
         <h2 className="text-[16px] font-semibold">Cliente oculto</h2>
         <p className="mt-2 text-[13px] text-[var(--texto-2)]">
-          Esse lead não tem WhatsApp — sem canal para mandar a pergunta, o teste
-          não acontece.
+          Este cadastro não tem um celular compatível confirmado para WhatsApp. Confira o contato antes de iniciar o teste.
         </p>
       </section>
     );
