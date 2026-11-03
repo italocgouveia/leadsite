@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { STATUS, corStatus, rotuloStatus } from "@/lib/etapa-simples";
+import { lerJson } from "@/lib/http-cliente";
+import { ErroDados } from "@/components/rotina-ui";
 import { SERVICOS } from "@/lib/servicos";
 
 /**
@@ -121,6 +123,7 @@ export default function Prospeccao() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const [erroCarga, setErroCarga] = useState("");
 
   const [busca, setBusca] = useState("");
   /**
@@ -142,27 +145,14 @@ export default function Prospeccao() {
   const [aviso, setAviso] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
-    const r = await fetch("/api/prospeccao").then((x) => x.json());
-    setLeads(r.leads ?? []);
-    setResumo(r.resumo ?? null);
-    setCarregando(false);
+    setCarregando(true); setErroCarga("");
+    try {
+      const r = await lerJson<{ leads: Lead[]; resumo: Resumo }>("/api/prospeccao");
+      setLeads(r.leads); setResumo(r.resumo);
+    } catch (e) { setErroCarga(e instanceof Error ? e.message : "Não foi possível carregar os leads."); }
+    finally { setCarregando(false); }
   }, []);
-
-  useEffect(() => {
-    let vivo = true;
-    fetch("/api/prospeccao")
-      .then((x) => x.json())
-      .then((r) => {
-        if (!vivo) return;
-        setLeads(r.leads ?? []);
-        setResumo(r.resumo ?? null);
-        setCarregando(false);
-      })
-      .catch(() => setCarregando(false));
-    return () => {
-      vivo = false;
-    };
-  }, []);
+  useEffect(() => { void carregar(); }, [carregar]);
 
   /** Salva um campo e atualiza a linha na hora, sem recarregar a lista. */
   async function salvar(id: string, mudanca: Partial<Record<string, unknown>>) {
@@ -221,8 +211,9 @@ export default function Prospeccao() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 pb-24 pt-20 sm:px-6 lg:pt-10">
+      {erroCarga && <ErroDados mensagem={erroCarga} repetir={carregar} />}
       <header className="mb-6">
-        <h1 className="text-[26px] font-semibold tracking-tight sm:text-[30px]">Prospecção</h1>
+        <h1 className="text-[26px] font-semibold tracking-tight sm:text-[30px]">Meus leads</h1>
         <p className="mt-1 text-[14px] text-[var(--texto-2)]">
           Todos os seus leads, o que você quer vender para cada um e em que pé está.
         </p>
@@ -379,12 +370,12 @@ export default function Prospeccao() {
             <div key={i} className="esqueleto h-14" />
           ))}
         </div>
-      ) : visiveis.length === 0 ? (
+      ) : erroCarga ? null : visiveis.length === 0 ? (
         <div className="rounded-[12px] border border-[var(--linha)] px-6 py-16 text-center">
           <p className="text-[15px]">Nenhum lead com esse filtro.</p>
           <p className="mt-1 text-[13.5px] text-[var(--texto-2)]">
             Limpe a busca ou{" "}
-            <Link href="/" className="text-[var(--azul)]">
+            <Link href="/cacada" className="text-[var(--azul)]">
               busque novos leads
             </Link>
             .

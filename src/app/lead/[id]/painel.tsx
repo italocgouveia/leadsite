@@ -161,7 +161,7 @@ export default function PainelLead({ lead, site }: { lead: Lead; site: SiteResum
 
   return (
     <main className="mx-auto max-w-3xl px-5 pb-24 pt-20 lg:pt-10">
-      <Link href="/" className="mb-5 inline-block text-[14px] text-[var(--azul)]">
+      <Link href="/leads" className="mb-5 inline-block text-[14px] text-[var(--azul)]">
         ‹ Voltar
       </Link>
 

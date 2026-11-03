@@ -5,77 +5,29 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { sair } from "@/app/entrar/acoes";
 
-/**
- * A BARRA LATERAL É A NAVEGAÇÃO. Cada área tem entrada própria.
- *
- * A versão anterior escondia áreas inteiras dentro de abas da Central: para
- * chegar em enriquecimento você entrava em outra tela e clicava de novo. Isso
- * confunde duas coisas diferentes — a Central é BIBLIOTECA (o que falar), e
- * encontrar, priorizar e enriquecer são OPERAÇÃO (o que fazer).
- *
- * Os grupos nomeiam a intenção, não a tecnologia:
- *
- *   PROSPECTAR  trazer empresa e decidir quem abordar
- *   CONVERSAR   os canais e a operação de envio
- *   MATERIAL    o que falar em cada situação
- *   ACOMPANHAR  o que já está em movimento
- *
- * `/` continua existindo e funcionando — é a busca antiga, hoje superada por
- * "Encontrar clientes", que usa a MESMA rota de coleta. Ela saiu do menu para
- * não oferecer duas portas para a mesma coisa, mas o link salvo de alguém
- * continua abrindo.
- */
+/** Uma rotina principal; os recursos especializados continuam acessíveis. */
 type ItemMenu = { href: string; rotulo: string; icone: string };
 type Grupo = { titulo: string; itens: readonly ItemMenu[] };
-
-const GRUPOS: readonly Grupo[] = [
-  {
-    titulo: "Prospectar",
-    itens: [
-      { href: "/cacada", rotulo: "Encontrar clientes", icone: "busca" },
-      { href: "/radar", rotulo: "Radar comercial", icone: "alvo" },
-      { href: "/enriquecimento", rotulo: "Enriquecimento", icone: "globo" },
-      { href: "/leads", rotulo: "Lista de leads", icone: "lista" },
-    ],
-  },
-  {
-    titulo: "Conversar",
-    itens: [
-      { href: "/conversas", rotulo: "Conversas", icone: "balao" },
-      { href: "/instagram", rotulo: "Instagram", icone: "camera" },
-      { href: "/disparos", rotulo: "Envio de mensagens", icone: "aviao" },
-      { href: "/campanhas", rotulo: "Campanhas", icone: "foguete" },
-    ],
-  },
-  {
-    titulo: "Automação IA",
-    itens: [
-      { href: "/automacao", rotulo: "Visão geral", icone: "robo" },
-      { href: "/automacao/conversas", rotulo: "Conversas IA", icone: "balao" },
-      { href: "/automacao/contatos", rotulo: "Contatos", icone: "lista" },
-      { href: "/automacao/fluxos", rotulo: "Fluxos", icone: "fluxo" },
-      { href: "/automacao/configuracoes", rotulo: "Configurações", icone: "engrenagem" },
-    ],
-  },
-  {
-    titulo: "Material",
-    itens: [{ href: "/prospeccao", rotulo: "Central de prospecção", icone: "livro" }],
-  },
-  {
-    titulo: "Acompanhar",
-    itens: [
-      { href: "/painel", rotulo: "Painel", icone: "grafico" },
-      { href: "/pipeline", rotulo: "Pipeline", icone: "colunas" },
-      { href: "/sites", rotulo: "Sites", icone: "monitor" },
-    ],
-  },
-] as const;
-
-/** Ajuste e diagnóstico: importam raramente, e ficam fora do caminho. */
+const GRUPOS: readonly Grupo[] = [{ titulo: "Seu dia a dia", itens: [
+  { href: "/", rotulo: "Início", icone: "grafico" },
+  { href: "/cacada", rotulo: "Buscar leads", icone: "busca" },
+  { href: "/leads", rotulo: "Meus leads", icone: "lista" },
+  { href: "/conversas", rotulo: "Conversas", icone: "balao" },
+  { href: "/rotina", rotulo: "Automação", icone: "raio" },
+]}];
 const SECUNDARIOS: readonly ItemMenu[] = [
+  { href: "/pipeline", rotulo: "Funil de vendas", icone: "colunas" },
+  { href: "/painel", rotulo: "Relatórios", icone: "grafico" },
+  { href: "/radar", rotulo: "Radar comercial", icone: "alvo" },
+  { href: "/enriquecimento", rotulo: "Completar contatos", icone: "globo" },
+  { href: "/instagram", rotulo: "Instagram", icone: "camera" },
+  { href: "/campanhas", rotulo: "Campanhas", icone: "foguete" },
+  { href: "/prospeccao", rotulo: "Modelos de mensagem", icone: "livro" },
+  { href: "/sites", rotulo: "Sites e propostas", icone: "monitor" },
+  { href: "/busca-avancada", rotulo: "Busca por região", icone: "busca" },
+  { href: "/automacao", rotulo: "Demonstração de IA", icone: "robo" },
   { href: "/calibracao", rotulo: "Calibração", icone: "regua" },
-  { href: "/config", rotulo: "Configurações", icone: "engrenagem" },
-] as const;
+];
 
 function Icone({ nome, ativo }: { nome: string; ativo: boolean }) {
   const p = {
@@ -248,7 +200,7 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
    * com startsWith, "Visao geral" acenderia junto com "Conversas IA".
    */
   const ehAtivo = (href: string) =>
-    href === "/" || href === "/automacao" ? caminho === href : caminho.startsWith(href);
+    href === "/" || href === "/automacao" ? caminho === href : (caminho === href || caminho.startsWith(`${href}/`) || (href === "/rotina" && caminho === "/disparos"));
 
   const cabecalho = (
     <div className="mb-6 flex items-center gap-2.5 px-2.5 pt-2">
@@ -273,6 +225,7 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
       <Link
         key={i.href}
         href={i.href}
+        aria-current={ativo ? "page" : undefined}
         onClick={() => setAberto(false)}
         className={`flex items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-[14px] transition-colors ${
           ativo
@@ -313,9 +266,10 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
        * não de uso diário — deixá-las visíveis empatava a atenção com o que
        * você faz todo dia.
        */}
+      <div className="border-t border-[var(--linha)] pt-3">{item({ href: "/config", rotulo: "Configurações", icone: "engrenagem" })}</div>
       <details className="group pt-1" open={SECUNDARIOS.some((i) => ehAtivo(i.href))}>
         <summary className="cursor-pointer list-none px-2.5 py-2 text-[13px] text-[var(--texto-3)] hover:text-[var(--texto-2)]">
-          Mais
+          Ferramentas avançadas
         </summary>
         <div className="mt-0.5 space-y-0.5">{SECUNDARIOS.map(item)}</div>
       </details>
@@ -351,6 +305,7 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
         <button
           onClick={() => setAberto(true)}
           aria-label="Abrir menu"
+          aria-expanded={aberto}
           className="rounded-[8px] p-2 text-[var(--texto-2)] hover:bg-[var(--superficie)]"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -376,6 +331,7 @@ export default function Menu({ usuario }: { usuario?: { nome?: string | null; em
             onClick={() => setAberto(false)}
           />
           <aside className="fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-[var(--linha)] bg-[var(--fundo)]/90 p-3 backdrop-blur-xl lg:hidden">
+            <button className="self-end p-2 text-sm" onClick={() => setAberto(false)} aria-label="Fechar menu">Fechar ×</button>
             {cabecalho}
             {links}
             {rodape}
