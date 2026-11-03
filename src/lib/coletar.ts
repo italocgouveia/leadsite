@@ -189,9 +189,9 @@ export async function buscarEGravar(
         instagram: sql`coalesce(excluded.instagram, ${leads.instagram})`,
         facebook: sql`coalesce(excluded.facebook, ${leads.facebook})`,
         email: sql`coalesce(excluded.email, ${leads.email})`,
-        telefoneOrigem: sql`CASE WHEN ${leads.telefone} IS NULL THEN coalesce(excluded.telefone_origem, ${leads.telefoneOrigem}) ELSE ${leads.telefoneOrigem} END`,
-        telefoneConfianca: sql`CASE WHEN ${leads.telefone} IS NULL THEN coalesce(excluded.telefone_confianca, ${leads.telefoneConfianca}) ELSE ${leads.telefoneConfianca} END`,
-        telefoneEncontradoEm: sql`CASE WHEN ${leads.telefone} IS NULL THEN coalesce(excluded.telefone_encontrado_em, ${leads.telefoneEncontradoEm}) ELSE ${leads.telefoneEncontradoEm} END`,
+        telefoneOrigem: sql`CASE WHEN ${leads.telefone} IS NULL OR (${leads.telefone} = excluded.telefone AND ${leads.telefoneOrigem} IS NULL) THEN coalesce(excluded.telefone_origem, ${leads.telefoneOrigem}) ELSE ${leads.telefoneOrigem} END`,
+        telefoneConfianca: sql`CASE WHEN ${leads.telefone} IS NULL OR (${leads.telefone} = excluded.telefone AND ${leads.telefoneOrigem} IS NULL) THEN coalesce(excluded.telefone_confianca, ${leads.telefoneConfianca}) ELSE ${leads.telefoneConfianca} END`,
+        telefoneEncontradoEm: sql`CASE WHEN ${leads.telefone} IS NULL OR (${leads.telefone} = excluded.telefone AND ${leads.telefoneOrigem} IS NULL) THEN coalesce(excluded.telefone_encontrado_em, ${leads.telefoneEncontradoEm}) ELSE ${leads.telefoneEncontradoEm} END`,
         // Dados brutos do mapa: sempre atualiza, é só espelho do OSM.
         dadosOsm: sql`excluded.dados_osm`,
         // Horário NÃO sobrescreve: se você digitou o horário real do dono,
