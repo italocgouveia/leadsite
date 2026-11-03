@@ -174,6 +174,7 @@ export const NICHOS_LOCAIS: NichoLocal[] = [
   { termo: "artigos de festa", rotulo: "Artigos de festa", recorrente: false, prioridade: "B" },
   { termo: "tecidos", rotulo: "Tecidos e aviamentos", recorrente: false, prioridade: "B" },
   { termo: "revenda de veículos", rotulo: "Revenda de veículos", recorrente: false, prioridade: "B" },
+  { termo: "garagem de veículos", rotulo: "Garagens de veículos", recorrente: false, prioridade: "B" },
   { termo: "casa noturna", rotulo: "Casa noturna", recorrente: false, prioridade: "B" },
   { termo: "papelaria", rotulo: "Papelaria", recorrente: false, prioridade: "C" },
   { termo: "utilidades domésticas", rotulo: "Utilidades domésticas", recorrente: false, prioridade: "C" },

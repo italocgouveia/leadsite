@@ -121,7 +121,7 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
   },
   { termos: ["lava jato", "lava-jato", "estética automotiva"], filtros: [{ chave: "amenity", valor: "car_wash" }] },
   { termos: ["borracharia", "pneu"], filtros: [{ chave: "shop", valor: "tyres" }] },
-  { termos: ["concessionária", "revenda de carros", "loja de carros"], filtros: [{ chave: "shop", valor: "car" }] },
+  { termos: ["concessionária", "revenda de carros", "loja de carros", "garagem de veículos", "garagem de veiculos", "garagens de veículos", "garagens de veiculos"], filtros: [{ chave: "shop", valor: "car" }] },
   { termos: ["moto", "motocicleta"], filtros: [{ chave: "shop", valor: "motorcycle" }] },
 
   // Serviços profissionais
@@ -382,7 +382,7 @@ const MAPA: { termos: string[]; filtros: FiltroOsm[] }[] = [
     filtros: [{ chave: "shop", valor: "fabric" }],
   },
   {
-    termos: ["revenda de veículos", "revenda de veiculos", "concessionária"],
+    termos: ["revenda de veículos", "revenda de veiculos", "concessionária", "garagem de veículos", "garagem de veiculos", "garagens de veículos", "garagens de veiculos"],
     filtros: [{ chave: "shop", valor: "car" }],
   },
   {
