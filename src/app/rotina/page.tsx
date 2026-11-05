@@ -21,9 +21,9 @@ export default function Automacao() {
     catch (e) { setErro(e instanceof Error ? e.message : "Não foi possível consultar a automação."); }
   }, []);
   useEffect(() => {
-    void carregar();
+    const inicial = window.setTimeout(() => void carregar(), 0);
     const id = setInterval(() => { if (document.visibilityState === "visible") void carregar(); }, 30000);
-    return () => clearInterval(id);
+    return () => { window.clearTimeout(inicial); clearInterval(id); };
   }, [carregar]);
   async function pausar() {
     setOcupado(true); setAviso("");

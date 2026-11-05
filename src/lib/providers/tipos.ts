@@ -27,6 +27,8 @@ export type ResultadoConexao =
   | { ok: true; detalhes: { provedor: string; instancia: string; estado: string } }
   | { ok: false; erro: string; comoResolver: string[] };
 
+export type ResultadoQr = { ok: true; qrDataUrl: string } | { ok: false; erro: string };
+
 /** Evento do provedor traduzido para o vocabulário do sistema. */
 export type EventoNormalizado = {
   tipo: "enviada" | "entregue" | "lida" | "recebida" | "desconhecido";
@@ -46,8 +48,9 @@ export interface Provedor {
   /** Caminho de envio, para a tela mostrar o que será chamado. */
   urlDeEnvio(cfg: ConfigProvedor): string;
   normalizarWebhook(corpo: Record<string, unknown>): EventoNormalizado;
+  obterQr?(cfg: ConfigProvedor): Promise<ResultadoQr>;
   /** Nem todo provedor deixa registrar webhook por API. */
-  registrarWebhook?(cfg: ConfigProvedor, url: string): Promise<ResultadoConexao>;
+  registrarWebhook?(cfg: ConfigProvedor, url: string, segredoWebhook?: string): Promise<ResultadoConexao>;
 }
 
 /**

@@ -1,7 +1,7 @@
 // Teste da janela de horário permitido — função pura, sem banco. Aceita uma
 // data explícita (mesmo padrão de resolverSaudacao) para não depender do
 // relógio real da máquina que roda o teste.
-import { horarioPermitidoAgora, type Config } from "@/lib/fila";
+import { horarioPermitidoAgora, inicioDoDia, type Config } from "@/lib/fila";
 
 function afirmar(nome: string, condicao: boolean) {
   if (!condicao) throw new Error(`FALHOU: ${nome}`);
@@ -26,6 +26,17 @@ const cfgBase: Config = {
 };
 
 function main() {
+  const antesDaViradaSP = inicioDoDia(new Date("2026-11-05T02:59:59.000Z"));
+  afirmar(
+    "teto diário começa à meia-noite de São Paulo, mesmo com runtime UTC",
+    antesDaViradaSP.toISOString() === "2026-11-04T03:00:00.000Z",
+  );
+  const naViradaSP = inicioDoDia(new Date("2026-11-05T03:00:00.000Z"));
+  afirmar(
+    "a nova cota diária inicia exatamente à meia-noite de São Paulo",
+    naViradaSP.toISOString() === "2026-11-05T03:00:00.000Z",
+  );
+
   // desligado: sempre permitido, não importa a hora.
   const r1 = horarioPermitidoAgora({ ...cfgBase, horarioEnvioAtivo: false }, dataSP(3));
   afirmar("horarioEnvioAtivo=false: sempre permitido", r1.permitido === true);

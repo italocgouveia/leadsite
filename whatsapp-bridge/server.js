@@ -3,18 +3,20 @@ import express from "express";
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
-  useMultiFileAuthState,
+  useMultiFileAuthState as carregarEstadoAutenticacao,
 } from "@whiskeysockets/baileys";
 import QRCode from "qrcode";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const API_PORT = Number(process.env.API_PORT || 8081);
+const API_PORT = Number(process.env.PORT || process.env.API_PORT || 8081);
 const PAIRING_PORT = Number(process.env.PAIRING_PORT || 8082);
+const BIND_HOST = process.env.BIND_HOST || "0.0.0.0";
 const AUTH_DIR = path.resolve(__dirname, process.env.AUTH_DIR || "./auth");
 const API_TOKEN = process.env.BRIDGE_API_TOKEN || "";
 const WEBHOOK_URL = process.env.WEBHOOK_URL || "";
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
 let sock = null;
 let qrAtual = null;
@@ -32,7 +34,10 @@ async function notificarWebhook(body) {
   try {
     await fetch(WEBHOOK_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(WEBHOOK_SECRET ? { Authorization: `Bearer ${WEBHOOK_SECRET}` } : {}),
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(8_000),
     });
@@ -53,7 +58,7 @@ function textoDaMensagem(message) {
 }
 
 async function conectar() {
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  const { state, saveCreds } = await carregarEstadoAutenticacao(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion();
 
   sock = makeWASocket({
@@ -133,9 +138,17 @@ const api = express();
 api.disable("x-powered-by");
 api.use(express.json({ limit: "64kb" }));
 
+api.get("/healthz", (_req, res) => res.json({ ok: true }));
+
 api.get("/status", (req, res) => {
   if (!autorizado(req)) return res.status(401).json({ error: "Não autorizado" });
   res.json({ conectado: Boolean(sock?.user), estado, numero: sock?.user?.id?.split(":")[0] || null });
+});
+
+api.get("/pairing", async (req, res) => {
+  if (!autorizado(req)) return res.status(401).json({ error: "Não autorizado" });
+  const qrDataUrl = qrAtual ? await QRCode.toDataURL(qrAtual, { width: 280, margin: 2 }) : null;
+  res.json({ estado, conectado: Boolean(sock?.user), numero: sock?.user?.id?.split(":")[0] || null, qrDataUrl });
 });
 
 api.get("/worker/status", (req, res) => {
@@ -161,10 +174,11 @@ api.post("/send", async (req, res) => {
   }
 });
 
-api.listen(API_PORT, "127.0.0.1", () => {
-  console.log(`Bridge local em http://127.0.0.1:${API_PORT}`);
+api.listen(API_PORT, BIND_HOST, () => {
+  console.log(`Bridge escutando na porta ${API_PORT}`);
   if (!API_TOKEN) console.warn("BRIDGE_API_TOKEN não configurado; chamadas protegidas ficarão bloqueadas.");
   if (!WEBHOOK_URL) console.warn("WEBHOOK_URL não configurada; respostas não chegarão ao Leadsite.");
+  if (!WEBHOOK_SECRET) console.warn("WEBHOOK_SECRET não configurado; callbacks não terão autenticação Bearer.");
 });
 
 const pairing = express();

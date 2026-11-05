@@ -14,6 +14,7 @@ export type SaudeBridge =
       whatsappEstado: string;
       filaWorkerAtivo: boolean;
       limiteWorkerRestante: number | null;
+      qrDataUrl: string | null;
     }
   | { alcancavel: false };
 
@@ -39,9 +40,10 @@ async function buscar(url: string, apiKey: string | null): Promise<Record<string
 export async function consultarBridge(cfg: ConfigProvedor): Promise<SaudeBridge> {
   if (cfg.tipo !== "custom") return { alcancavel: false };
 
-  const [status, worker] = await Promise.all([
+  const [status, worker, pairing] = await Promise.all([
     buscar(juntarUrl(cfg.baseUrl, "/status"), cfg.apiKey),
     buscar(juntarUrl(cfg.baseUrl, "/worker/status"), cfg.apiKey),
+    buscar(juntarUrl(cfg.baseUrl, "/pairing"), cfg.apiKey),
   ]);
 
   if (!status) return { alcancavel: false };
@@ -52,6 +54,7 @@ export async function consultarBridge(cfg: ConfigProvedor): Promise<SaudeBridge>
     whatsappEstado: typeof status.estado === "string" ? status.estado : "desconhecido",
     filaWorkerAtivo: worker?.filaWorkerAtivo === true,
     limiteWorkerRestante: typeof worker?.limiteWorkerRestante === "number" ? worker.limiteWorkerRestante : null,
+    qrDataUrl: typeof pairing?.qrDataUrl === "string" ? pairing.qrDataUrl : null,
   };
 }
 

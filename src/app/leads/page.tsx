@@ -153,7 +153,10 @@ export default function Prospeccao() {
     } catch (e) { setErroCarga(e instanceof Error ? e.message : "Não foi possível carregar os leads."); }
     finally { setCarregando(false); }
   }, []);
-  useEffect(() => { void carregar(); }, [carregar]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void carregar(), 0);
+    return () => window.clearTimeout(timer);
+  }, [carregar]);
 
   /** Salva um campo e atualiza a linha na hora, sem recarregar a lista. */
   async function salvar(id: string, mudanca: Partial<Record<string, unknown>>) {

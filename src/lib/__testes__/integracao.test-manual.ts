@@ -111,6 +111,36 @@ async function testar404() {
     r2.ok ? "passou quando nao devia" : r2.erro,
   );
 
+  const capturaWebhook: { corpo: Record<string, unknown> | null } = { corpo: null };
+  let urlWebhook = "";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    urlWebhook = String(input);
+    capturaWebhook.corpo = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return Response.json({ ok: true });
+  }) as unknown as typeof fetch;
+  const semSegredo = await provedorDe("evolution").registrarWebhook!(cfgEvo, "https://crm.test/api/automacao/status");
+  ok("não registra webhook sem segredo configurado", !semSegredo.ok);
+  ok("recusa sem fazer chamada de rede", urlWebhook === "");
+
+  const rWebhook = await provedorDe("evolution").registrarWebhook!(
+    cfgEvo,
+    "https://crm.test/api/automacao/status",
+    "segredo-webhook-mock",
+  );
+  const configWebhook = capturaWebhook.corpo?.webhook as { url?: string; headers?: { Authorization?: string } } | undefined;
+  ok("Evolution recebe o segredo no header Bearer", configWebhook?.headers?.Authorization === "Bearer segredo-webhook-mock");
+  ok("URL do webhook não carrega o segredo", urlWebhook === "http://localhost:8080/webhook/set/principal" && configWebhook?.url === "https://crm.test/api/automacao/status");
+  ok("configuração do webhook aceita HTTP 200", rWebhook.ok);
+
+  let urlQr = "";
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    urlQr = String(input);
+    return Response.json({ base64: "aGVsbG8=" });
+  }) as unknown as typeof fetch;
+  const qr = await provedorDe("evolution").obterQr!(cfgEvo);
+  ok("QR chama endpoint da instância Evolution", urlQr === "http://localhost:8080/instance/connect/principal");
+  ok("QR vem como imagem para o painel", qr.ok && qr.qrDataUrl === "data:image/png;base64,aGVsbG8=");
+
   globalThis.fetch = original;
 }
 

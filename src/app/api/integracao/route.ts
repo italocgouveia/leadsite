@@ -56,7 +56,7 @@ export async function GET(request: Request) {
 }
 
 const Acao = z.object({
-  acao: z.enum(["testar-conexao", "testar-envio", "registrar-webhook", "migrar"]),
+  acao: z.enum(["testar-conexao", "testar-envio", "registrar-webhook", "obter-qr", "migrar"]),
   numero: z.string().max(30).optional(),
   texto: z.string().max(1000).optional(),
 });
@@ -82,6 +82,13 @@ export async function POST(request: Request) {
   }
 
   const p = provedorDe(cfg.tipo);
+
+  if (params.acao === "obter-qr") {
+    if (!p.obterQr) {
+      return NextResponse.json({ ok: false, erro: `${p.nome} não fornece QR code por esta integração.` }, { status: 422 });
+    }
+    return NextResponse.json(await p.obterQr(cfg));
+  }
 
   // ---------------------------------------------------- conexão
   if (params.acao === "testar-conexao") {
@@ -124,7 +131,7 @@ export async function POST(request: Request) {
         comoResolver: [`Cole este endereço no painel do provedor: ${url}`],
       });
     }
-    return NextResponse.json(await p.registrarWebhook(cfg, url));
+    return NextResponse.json(await p.registrarWebhook(cfg, url, process.env.WEBHOOK_SECRET));
   }
 
   // ---------------------------------------------------- envio de teste

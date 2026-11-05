@@ -153,10 +153,41 @@ export function horarioPermitidoAgora(cfg: Config, agora: Date = new Date()): St
   };
 }
 
-export function inicioDoDia(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+export function inicioDoDia(agora: Date = new Date()): Date {
+  // O runtime da Vercel normalmente usa UTC. Calcular meia-noite com
+  // `setHours(0, 0, 0, 0)` fazia o teto diário virar às 21h em Uberlândia.
+  // Descobre a data e o offset de São Paulo e converte a meia-noite local
+  // para um instante UTC, sem depender do fuso do processo.
+  const fuso = "America/Sao_Paulo";
+  const formato = new Intl.DateTimeFormat("en-CA", {
+    timeZone: fuso,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const partesAgora = Object.fromEntries(formato.formatToParts(agora).map((p) => [p.type, p.value]));
+  const ano = Number(partesAgora.year);
+  const mes = Number(partesAgora.month);
+  const dia = Number(partesAgora.day);
+
+  // Meio-dia UTC sempre cai no mesmo dia civil de São Paulo e evita a
+  // transição de offset que pode ocorrer perto da meia-noite em outros fusos.
+  const meioDiaUtc = Date.UTC(ano, mes - 1, dia, 12);
+  const partesMeioDia = Object.fromEntries(formato.formatToParts(new Date(meioDiaUtc)).map((p) => [p.type, p.value]));
+  const horaLocalComoUtc = Date.UTC(
+    Number(partesMeioDia.year),
+    Number(partesMeioDia.month) - 1,
+    Number(partesMeioDia.day),
+    Number(partesMeioDia.hour),
+    Number(partesMeioDia.minute),
+    Number(partesMeioDia.second),
+  );
+  const offsetMs = horaLocalComoUtc - meioDiaUtc;
+  return new Date(Date.UTC(ano, mes - 1, dia) - offsetMs);
 }
 
 /** Quantas já saíram hoje. Conta enviada, entregue e respondida. */

@@ -14,7 +14,10 @@ export default function Inicio() {
     catch (e) { setErro(e instanceof Error ? e.message : "Não foi possível carregar o resumo."); }
     finally { setCarregando(false); }
   }, []);
-  useEffect(() => { void carregar(); }, [carregar]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void carregar(), 0);
+    return () => window.clearTimeout(timer);
+  }, [carregar]);
   const retornos = (base?.leads ?? []).filter(l => l.proximoContato && !["fechado", "perdido"].includes(l.status)).sort((a, b) => a.proximoContato!.localeCompare(b.proximoContato!));
   return <main className={paginaRotina}>
     <Cabecalho titulo="Sua prospecção, organizada." descricao="Encontre empresas, acompanhe as conversas e saiba qual é o próximo passo." />

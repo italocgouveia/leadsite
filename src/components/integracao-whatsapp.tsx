@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import type { SaudeBridge } from "@/lib/bridge";
 
 /**
@@ -67,6 +68,7 @@ export default function IntegracaoWhatsapp() {
   } | null>(null);
 
   const [numeroTeste, setNumeroTeste] = useState("");
+  const [qrEvolution, setQrEvolution] = useState<string | null>(null);
   const [textoTeste, setTextoTeste] = useState("Teste enviado pelo sistema.");
   const [copiado, setCopiado] = useState(false);
   const [sugestaoNumero, setSugestaoNumero] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export default function IntegracaoWhatsapp() {
       }
       setTocouToken(false);
       setToken("");
+      setQrEvolution(null);
       setResultado({ ok: true, texto: "Configuração salva." });
       await carregar();
     } finally {
@@ -143,7 +146,7 @@ export default function IntegracaoWhatsapp() {
     }
   }
 
-  async function acao(a: "testar-conexao" | "testar-envio" | "registrar-webhook") {
+  async function acao(a: "testar-conexao" | "testar-envio" | "registrar-webhook" | "obter-qr") {
     setTestando(true);
     setResultado(null);
     try {
@@ -157,10 +160,13 @@ export default function IntegracaoWhatsapp() {
       }).then((x) => x.json());
 
       if (r.ok) {
+        if (a === "obter-qr" && typeof r.qrDataUrl === "string") setQrEvolution(r.qrDataUrl);
         setResultado({
           ok: true,
           texto:
-            a === "testar-conexao"
+            a === "obter-qr"
+              ? "QR code pronto. Leia pelo WhatsApp antes de expirar."
+              : a === "testar-conexao"
               ? `Conectado — ${r.detalhes?.provedor}, instância ${r.detalhes?.instancia}, estado ${r.detalhes?.estado}`
               : a === "testar-envio"
                 ? `Mensagem enviada${r.provedorId ? ` (id ${r.provedorId})` : ""}`
@@ -199,7 +205,9 @@ export default function IntegracaoWhatsapp() {
               e.bridge?.alcancavel ? ` (${e.bridge.whatsappEstado})` : ""
             }`,
           }
-        : { emoji: "🟢", texto: "WhatsApp conectado" };
+        : aoVivo === true
+          ? { emoji: "🟢", texto: "WhatsApp conectado" }
+          : { emoji: "🟡", texto: "Configuração validada — conexão não confirmada ao vivo" };
 
   return (
     <div className="space-y-6">
@@ -234,9 +242,23 @@ export default function IntegracaoWhatsapp() {
         {aoVivo === false && (
           <p className="text-[13px] text-[var(--texto-2)]">
             A configuração está certa — o que caiu foi a sessão do WhatsApp em si.
-            Normalmente ela reconecta sozinha; se não voltar, escaneie o QR code de
-            novo direto na bridge.
+            Normalmente ela reconecta sozinha. Se a bridge estiver aguardando
+            pareamento, atualize o QR abaixo e leia pelo WhatsApp.
           </p>
+        )}
+
+        {e.bridge?.alcancavel && !e.bridge.whatsappConectado && (
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            {e.bridge.qrDataUrl ? (
+              <Image src={e.bridge.qrDataUrl} alt="QR code para conectar o WhatsApp" width={220} height={220} unoptimized className="rounded-xl bg-white p-2" />
+            ) : (
+              <p className="text-[13px] text-[var(--texto-2)]">A bridge ainda não forneceu um QR code.</p>
+            )}
+            <div>
+              <p className="max-w-sm text-[13px] text-[var(--texto-2)]">No celular, abra WhatsApp → Aparelhos conectados → Conectar aparelho.</p>
+              <button type="button" onClick={() => void carregar()} className="btn-secundario mt-3">Atualizar QR code</button>
+            </div>
+          </div>
         )}
 
         {e.pronta && e.estadoProvedor && (
@@ -263,7 +285,7 @@ export default function IntegracaoWhatsapp() {
             <button
               key={p.valor}
               type="button"
-              onClick={() => setTipo(p.valor)}
+              onClick={() => { setTipo(p.valor); setQrEvolution(null); }}
               title={p.dica}
               className={`rounded-[10px] px-3 py-2 text-[13px] transition ${
                 tipo === p.valor
@@ -283,7 +305,7 @@ export default function IntegracaoWhatsapp() {
             </label>
             <input
               value={baseUrl}
-              onChange={(ev) => setBaseUrl(ev.target.value)}
+              onChange={(ev) => { setBaseUrl(ev.target.value); setQrEvolution(null); }}
               placeholder="http://localhost:8080"
               className="campo-apple"
             />
@@ -299,7 +321,7 @@ export default function IntegracaoWhatsapp() {
               </label>
               <input
                 value={instancia}
-                onChange={(ev) => setInstancia(ev.target.value)}
+                onChange={(ev) => { setInstancia(ev.target.value); setQrEvolution(null); }}
                 placeholder={tipo === "waha" ? "default" : "minha-instancia"}
                 className="campo-apple"
               />
@@ -366,7 +388,19 @@ export default function IntegracaoWhatsapp() {
           >
             🔌 {testando ? "Testando…" : "Testar conexão"}
           </button>
+          {tipo === "evolution" && (
+            <button type="button" onClick={() => acao("obter-qr")} disabled={testando || !e.baseUrl || !e.instancia} className="btn-secundario">
+              {testando ? "Aguardando…" : "Gerar QR code"}
+            </button>
+          )}
         </div>
+
+        {tipo === "evolution" && qrEvolution && (
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            <Image src={qrEvolution} alt="QR code para conectar o WhatsApp" width={220} height={220} unoptimized className="rounded-xl bg-white p-2" />
+            <p className="max-w-sm text-[13px] text-[var(--texto-2)]">No celular, abra WhatsApp → Aparelhos conectados → Conectar aparelho. Gere outro QR se este expirar.</p>
+          </div>
+        )}
 
         {resultado && (
           <div
@@ -470,9 +504,10 @@ export default function IntegracaoWhatsapp() {
         </div>
 
         <p className="mb-3 text-[12px] text-[var(--texto-3)]">
-          Configure <code>WEBHOOK_SECRET</code> nas variáveis da Vercel e autentique este
-          endereço com <code>?token=WEBHOOK_SECRET</code> (ou Bearer, se a bridge aceitar).
-          Não use <code>API_TOKEN</code>: ele é exclusivo da fila do n8n.
+          Configure <code>WEBHOOK_SECRET</code> nas variáveis da Vercel e use-o como
+          cabeçalho <code>Authorization: Bearer …</code> no provedor. Para a Evolution,
+          “Configurar webhook automaticamente” aplica o cabeçalho no servidor. Não use
+          <code>API_TOKEN</code>: ele é exclusivo da fila do n8n.
         </p>
 
         <p

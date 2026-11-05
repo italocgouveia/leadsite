@@ -7,6 +7,7 @@ import {
   type Provedor,
   type ResultadoConexao,
   type ResultadoEnvio,
+  type ResultadoQr,
 } from "./tipos";
 
 /**
@@ -68,6 +69,27 @@ function extrairId(corpo: unknown): string | null {
 
 export const evolution: Provedor = {
   nome: "Evolution API",
+
+  async obterQr(cfg): Promise<ResultadoQr> {
+    const r = await chamar(cfg, `/instance/connect/${cfg.instancia}`);
+    if (r.erro || r.status >= 400) {
+      const corpo = r.corpo as { message?: unknown; error?: unknown } | null;
+      const detalhe = (typeof corpo?.message === "string" && corpo.message) || (typeof corpo?.error === "string" && corpo.error) || r.erro || `HTTP ${r.status}`;
+      return { ok: false, erro: limparSegredo(String(detalhe), cfg.apiKey) };
+    }
+    const resposta = r.corpo as {
+      base64?: unknown;
+      qrcode?: { base64?: unknown };
+      qrCode?: { base64?: unknown };
+      data?: { base64?: unknown; qrcode?: { base64?: unknown }; qrCode?: { base64?: unknown } };
+    } | null;
+    const data = resposta?.data ?? resposta;
+    const base64 = data?.base64 ?? data?.qrcode?.base64 ?? data?.qrCode?.base64;
+    if (typeof base64 !== "string" || !base64.trim()) {
+      return { ok: false, erro: "A Evolution respondeu, mas não trouxe um QR code. Confira se a instância está desconectada." };
+    }
+    return { ok: true, qrDataUrl: base64.startsWith("data:image/") ? base64 : `data:image/png;base64,${base64}` };
+  },
 
   urlDeEnvio(cfg) {
     return juntarUrl(cfg.baseUrl, `/message/sendText/${cfg.instancia}`);
@@ -192,13 +214,21 @@ export const evolution: Provedor = {
     };
   },
 
-  async registrarWebhook(cfg, url): Promise<ResultadoConexao> {
+  async registrarWebhook(cfg, url, segredoWebhook): Promise<ResultadoConexao> {
+    if (!segredoWebhook) {
+      return {
+        ok: false,
+        erro: "WEBHOOK_SECRET não configurado no servidor do CRM.",
+        comoResolver: ["Configure WEBHOOK_SECRET na Vercel e tente novamente."],
+      };
+    }
     const r = await chamar(cfg, `/webhook/set/${cfg.instancia}`, {
       method: "POST",
       body: JSON.stringify({
         webhook: {
           enabled: true,
           url,
+          headers: { Authorization: `Bearer ${segredoWebhook}` },
           events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE"],
         },
       }),
